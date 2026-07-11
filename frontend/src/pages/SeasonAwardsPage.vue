@@ -12,6 +12,7 @@ import {
   GetSeasonList,
   ListAllAwards,
   SubmitSeasonAwards,
+  SuggestSeasonAwards,
 } from '../../wailsjs/go/main/App'
 import { main } from '../../wailsjs/go/models'
 import AppButton from '../components/AppButton.vue'
@@ -58,6 +59,7 @@ const toast = useToast()
 const loadingSeasons = ref(false)
 const loadingCandidates = ref(false)
 const submitting = ref(false)
+const suggesting = ref(false)
 const error = ref<string | null>(null)
 
 // ── View mode ─────────────────────────────────────────────────────────────────
@@ -194,6 +196,30 @@ async function submitAwards() {
 
 // ── Row helpers ───────────────────────────────────────────────────────────────
 
+// Re-runs auto-suggest unconditionally and replaces the pending state with the
+// results. Lets the user get fresh suggestions even after awards have been submitted.
+async function suggestAwards() {
+  if (selectedSeasonId.value == null) return
+  suggesting.value = true
+  error.value = null
+  try {
+    const suggestions = await SuggestSeasonAwards(selectedSeasonId.value)
+
+    // Clear existing pending state, then apply suggestions.
+    for (const k of Object.keys(pending)) delete (pending as Record<string, number[]>)[k]
+    for (const s of suggestions ?? []) {
+      pending[s.playerSeasonId] = [...(s.awardIds ?? [])]
+    }
+
+    if (candidates.value) candidates.value.autoSuggested = true
+    toast.add({ severity: 'success', summary: 'Awards re-suggested', life: 3000 })
+  } catch (e) {
+    error.value = String(e)
+  } finally {
+    suggesting.value = false
+  }
+}
+
 function getRegularAwardIds(psId: number): number[] {
   const all = pending[psId] ?? []
   const ids = new Set(regularAwards.value.map((a) => a.id))
@@ -263,6 +289,14 @@ onMounted(loadSeasons)
         <button class="btn btn-ghost" @click="viewMode ? exitViewMode() : enterViewMode()">
           {{ viewMode ? 'Edit Awards' : 'View Awards' }}
         </button>
+        <button
+          v-if="!viewMode"
+          class="btn btn-ghost"
+          :disabled="selectedSeasonId == null || suggesting"
+          @click="suggestAwards"
+        >
+          {{ suggesting ? 'Suggesting…' : 'Suggest Awards' }}
+        </button>
         <AppButton
           v-if="!viewMode"
           :disabled="selectedSeasonId == null"
@@ -276,7 +310,8 @@ onMounted(loadSeasons)
 
     <div v-if="candidates?.autoSuggested" class="auto-suggest-banner">
       ✦ Awards pre-filled with suggestions — All-Star for top 2 per team, Silver Slugger for top
-      batter per position. Edit and submit to confirm.
+      batter per position, MVP/Cy Young/ROY for top 5 by WAR, Playoff & Championship MVP for top
+      playoff performers. Edit and submit to confirm.
     </div>
 
     <div v-if="error" class="error-msg">{{ error }}</div>

@@ -203,6 +203,28 @@ func (a *App) GetSeasonAwardCandidates(seasonID int64) (SeasonAwardCandidatesDTO
 	return seasonAwardCandidatesToDTO(m), nil
 }
 
+// SuggestSeasonAwards runs the auto-suggest logic unconditionally and returns the
+// suggested award IDs per player-season. Used by the "Suggest Awards" button to
+// re-populate the pending state with fresh suggestions after awards have already
+// been submitted.
+func (a *App) SuggestSeasonAwards(seasonID int64) ([]PlayerAwardEntryDTO, error) {
+	if err := a.requireCompanionDB(); err != nil {
+		return nil, err
+	}
+	entries, err := a.awardStore.SuggestSeasonAwards(a.ctx, seasonID)
+	if err != nil {
+		return nil, err
+	}
+	dt := make([]PlayerAwardEntryDTO, len(entries))
+	for i, e := range entries {
+		dt[i] = PlayerAwardEntryDTO{
+			PlayerSeasonID: e.PlayerSeasonID,
+			AwardIDs:       e.AwardIDs,
+		}
+	}
+	return dt, nil
+}
+
 // SubmitSeasonAwards replaces user-assignable awards for all specified player-seasons
 // in a single transaction. Players omitted from the request are not modified.
 func (a *App) SubmitSeasonAwards(req SubmitSeasonAwardsDTO) error {

@@ -184,6 +184,8 @@ export function SetPlayerSeasonAwards(arg1:main.SetPlayerAwardsRequestDTO):Promi
 
 export function SubmitSeasonAwards(arg1:main.SubmitSeasonAwardsDTO):Promise<void>;
 
+export function SuggestSeasonAwards(arg1:number):Promise<Array<main.PlayerAwardEntryDTO>>;
+
 export function SyncSeason():Promise<main.SyncSeasonResult>;
 
 export function UploadAndAssignTeamLogo(arg1:number,arg2:string,arg3:any,arg4:any):Promise<main.TeamLogoDTO>;
