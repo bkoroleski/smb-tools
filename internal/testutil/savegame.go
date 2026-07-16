@@ -430,11 +430,18 @@ func seedSaveGameData(db *sql.DB) error {
 		VALUES (6, 14, 7, 25, 25, 570, 130, 50, 195);
 		INSERT INTO t_season_stats (aggregatorID, seasonID) VALUES (6, 101);
 
-		INSERT INTO t_season_schedule (seasonID, homeTeamID, awayTeamID) VALUES (101, 1, 2);
-		INSERT INTO t_game_results (ID, homeTeamLocalID, awayTeamLocalID, homeRunsScored, awayRunsScored)
-		VALUES (4, 1, 2, 6, 2);
-		INSERT INTO t_season_games (seasonID, gameID) VALUES (101, 4);
-	`)
+	INSERT INTO t_season_schedule (seasonID, homeTeamID, awayTeamID) VALUES (101, 1, 2);
+	INSERT INTO t_game_results (ID, homeTeamLocalID, awayTeamLocalID, homeRunsScored, awayRunsScored)
+	VALUES (4, 1, 2, 6, 2);
+	INSERT INTO t_season_games (seasonID, gameID) VALUES (101, 4);
+
+	-- ── Retired player (post-rollover state) ──────────────────────────────
+	-- Simulates a player who retired after season 100: retirementSeason is set,
+	-- baseballPlayerLocalID is NULL (live row deleted at offseason rollover), and
+	-- the name is frozen on the stats row. statsPlayerID is the only durable link.
+	INSERT INTO t_stats_players (statsPlayerID, baseballPlayerLocalID, firstName, lastName, primaryPos, age, retirementSeason)
+	VALUES (7, NULL, 'Retired', 'Guy', 'P', 42, 100);
+`)
 	return err
 }
 

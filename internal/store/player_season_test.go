@@ -2,8 +2,10 @@ package store_test
 
 import (
 	"context"
+	"database/sql"
 	"testing"
 
+	"smb-tools/internal/models"
 	"smb-tools/internal/store"
 	"smb-tools/internal/testutil"
 )
@@ -219,5 +221,63 @@ func TestPlayerSeasonStore_MultipleSeasonsSamePlayer(t *testing.T) {
 	}
 	if id1 == id2 {
 		t.Error("different seasons should produce different player_season IDs")
+	}
+}
+
+func TestPlayerSeasonStore_ApplyRetirements(t *testing.T) {
+	db := testutil.NewTestDB(t)
+	s := store.NewPlayerSeasonStore(db)
+	ss := store.NewSeasonStore(db)
+	ctx := context.Background()
+
+	const leagueGUID = "LEAGUE1"
+	seasonID := upsertTestSeason(t, ss, leagueGUID, 100, 1)
+
+	playerID, err := s.UpsertPlayer(ctx, store.PlayerIdentity{
+		GameGUID: "GUID1", FirstName: "Bream", LastName: "Ribeye", StatsPlayerID: 42,
+	})
+	if err != nil {
+		t.Fatalf("UpsertPlayer: %v", err)
+	}
+
+	retirees := []models.SaveGameRetiredPlayer{
+		{StatsPlayerID: 42, RetirementSeason: 100, FirstName: "Bream", LastName: "Ribeye"},
+		{StatsPlayerID: 999, RetirementSeason: 100, FirstName: "Ghost", LastName: "Player"}, // unknown player
+		{StatsPlayerID: 42, RetirementSeason: 777, FirstName: "Bream", LastName: "Ribeye"}, // unimported season
+	}
+	if err := s.ApplyRetirements(ctx, leagueGUID, retirees); err != nil {
+		t.Fatalf("ApplyRetirements: %v", err)
+	}
+
+	var retiredAfter sql.NullInt64
+	if err := db.QueryRowContext(ctx,
+		`SELECT retired_after_season_id FROM players WHERE id = ?`, playerID,
+	).Scan(&retiredAfter); err != nil {
+		t.Fatalf("query retired_after_season_id: %v", err)
+	}
+	if !retiredAfter.Valid || retiredAfter.Int64 != seasonID {
+		t.Errorf("retired_after_season_id: want %d, got %v", seasonID, retiredAfter.Int64)
+	}
+
+	if err := s.ApplyRetirements(ctx, leagueGUID, retirees); err != nil {
+		t.Fatalf("ApplyRetirements (re-run): %v", err)
+	}
+	if err := db.QueryRowContext(ctx,
+		`SELECT retired_after_season_id FROM players WHERE id = ?`, playerID,
+	).Scan(&retiredAfter); err != nil {
+		t.Fatalf("query retired_after_season_id (re-run): %v", err)
+	}
+	if !retiredAfter.Valid || retiredAfter.Int64 != seasonID {
+		t.Errorf("retired_after_season_id after re-run: want %d, got %v", seasonID, retiredAfter.Int64)
+	}
+}
+
+func TestPlayerSeasonStore_ApplyRetirements_EmptyInput(t *testing.T) {
+	db := testutil.NewTestDB(t)
+	s := store.NewPlayerSeasonStore(db)
+	ctx := context.Background()
+
+	if err := s.ApplyRetirements(ctx, "LEAGUE1", nil); err != nil {
+		t.Fatalf("ApplyRetirements(nil): %v", err)
 	}
 }

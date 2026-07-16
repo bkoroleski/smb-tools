@@ -102,7 +102,9 @@ Salary data lives in the `t_salary` table, linked to players and teams.
 
 - Players have an `age` attribute tracked in `t_baseball_players` and `t_stats_players`
 - `t_stats_players` includes a `retirementSeason` field indicating when a player retired
-- Once retired, seasonal stat data for that player becomes unavailable in the save file — this is why the Companion app must capture data before each player retires
+- SMB4 retains the retired player's stats identity and seasonal data until later retention cleanup
+
+See [Player Retirement in SMB4](player-retirement.md) for the trigger, identifier, timing, and cleanup behavior.
 
 ## Two-Way Players
 

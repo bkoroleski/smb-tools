@@ -1512,6 +1512,7 @@ export namespace main {
 	    isHallOfFamer: boolean;
 	    batting?: CareerBattingStatsDTO;
 	    pitching?: CareerPitchingStatsDTO;
+	    retiredAfterSeason?: number;
 	
 	    static createFrom(source: any = {}) {
 	        return new PlayerCareerDTO(source);
@@ -1525,6 +1526,7 @@ export namespace main {
 	        this.isHallOfFamer = source["isHallOfFamer"];
 	        this.batting = this.convertValues(source["batting"], CareerBattingStatsDTO);
 	        this.pitching = this.convertValues(source["pitching"], CareerPitchingStatsDTO);
+	        this.retiredAfterSeason = source["retiredAfterSeason"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -2755,4 +2757,3 @@ export namespace main {
 	}
 
 }
-

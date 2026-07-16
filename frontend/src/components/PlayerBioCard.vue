@@ -1,4 +1,5 @@
 <script lang="ts" setup>
+import Tag from 'primevue/tag'
 import { computed } from 'vue'
 import type { main } from '../../wailsjs/go/models'
 import { formatSalary } from '../composables/useStatFormatters'
@@ -38,6 +39,11 @@ const careerAwardGroups = computed((): AwardGroup[] => {
   <div class="bio-card">
     <div class="name-row">
       <h2 class="player-name">{{ player.firstName }} {{ player.lastName }}</h2>
+      <Tag
+        v-if="player.retiredAfterSeason != null"
+        :value="`Retired after Season ${player.retiredAfterSeason}`"
+        severity="secondary"
+      />
       <span v-if="player.isHallOfFamer" class="hof-badge">Hall of Famer</span>
     </div>
     <div v-if="careerAwardGroups.length > 0" class="awards-row">

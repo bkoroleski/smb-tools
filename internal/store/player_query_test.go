@@ -163,6 +163,37 @@ func TestGetPlayerCareer_NoBattingStats(t *testing.T) {
 	}
 }
 
+func TestGetPlayerCareer_ReturnsRetirementSeason(t *testing.T) {
+	db := testutil.NewTestDB(t)
+	ctx := context.Background()
+
+	retirementSeasonID := seedSeason(t, db, 101, 7, 40)
+	retiredPlayerID := seedPlayer(t, db, "retired-guid", "Retired", "Player")
+	activePlayerID := seedPlayer(t, db, "active-guid", "Active", "Player")
+	if _, err := db.ExecContext(ctx,
+		`UPDATE players SET retired_after_season_id = ? WHERE id = ?`, retirementSeasonID, retiredPlayerID,
+	); err != nil {
+		t.Fatalf("mark player retired: %v", err)
+	}
+
+	pq := store.NewPlayerQueryStore(db)
+	retired, err := pq.GetPlayerCareer(ctx, retiredPlayerID)
+	if err != nil {
+		t.Fatalf("GetPlayerCareer(retired): %v", err)
+	}
+	if retired.RetiredAfterSeason == nil || *retired.RetiredAfterSeason != 7 {
+		t.Fatalf("RetiredAfterSeason: want 7, got %v", retired.RetiredAfterSeason)
+	}
+
+	active, err := pq.GetPlayerCareer(ctx, activePlayerID)
+	if err != nil {
+		t.Fatalf("GetPlayerCareer(active): %v", err)
+	}
+	if active.RetiredAfterSeason != nil {
+		t.Errorf("active player RetiredAfterSeason: want nil, got %d", *active.RetiredAfterSeason)
+	}
+}
+
 func TestGetPlayerSeasonLog_RateColumnsStored(t *testing.T) {
 	db := testutil.NewTestDB(t)
 	ctx := context.Background()

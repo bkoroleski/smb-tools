@@ -575,6 +575,10 @@ func TestGetHoFCandidates(t *testing.T) {
 	retired := seedPlayer(t, db, "RET1", "Retired", "Guy")
 	rps := seedPlayerSeason(t, db, retired, season1, &th1)
 	seedBatting(t, db, rps, true, 100, 30, 5, 20)
+	if _, err := db.ExecContext(ctx,
+		`UPDATE players SET retired_after_season_id = ? WHERE id = ?`, season1, retired); err != nil {
+		t.Fatalf("mark retired: %v", err)
+	}
 
 	// Active: in both seasons.
 	active := seedPlayer(t, db, "ACT1", "Active", "Player")

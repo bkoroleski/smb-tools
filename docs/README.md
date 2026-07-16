@@ -15,6 +15,7 @@ Foundational knowledge about Super Mega Baseball itself and the data structures 
 | [save-game-schema.md](domain/save-game-schema.md) | Every table and view in the SMB save game SQLite database |
 | [franchise-offseason.md](domain/franchise-offseason.md) | SMB4 Franchise offseason states, rollover boundaries, and live-roster timing |
 | [player-model.md](domain/player-model.md) | Player attributes, positions, handedness, pitcher roles, chemistry |
+| [player-retirement.md](domain/player-retirement.md) | SMB4 retirement trigger, season flag semantics, durable player identity, and cleanup behavior |
 | [player-stats.md](domain/player-stats.md) | Every batting and pitching stat tracked, including derived/advanced metrics |
 | [game-top10-algorithm.md](domain/game-top10-algorithm.md) | Exact SMB4 League Leaders Top 10 scoring formulas and validation results |
 | [player-traits.md](domain/player-traits.md) | SMB3 trait list (20), SMB4 trait list (80+), chemistry system, save game encoding |
@@ -63,6 +64,6 @@ For a new developer on this project:
 
 1. `domain/game-overview.md` — understand the game and its modes
 2. `domain/save-game-format.md` + `domain/save-game-schema.md` — understand the raw data source
-3. `domain/player-model.md` + `domain/player-stats.md` — understand the player data model
+3. `domain/player-model.md` + `domain/player-retirement.md` + `domain/player-stats.md` — understand the player data model
 4. `smb3-explorer/user-features.md` — understand what the first app does
 5. `smb-explorer-companion/user-features.md` — understand what the second app does

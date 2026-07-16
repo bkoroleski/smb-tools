@@ -77,3 +77,50 @@ func TestGetSeasonInningsPerGame_DefaultValue(t *testing.T) {
 		t.Errorf("GetSeasonInningsPerGame(101) = %d, want 9", got)
 	}
 }
+
+func TestGetRetiredPlayers_ReturnsSeededRetiree(t *testing.T) {
+	db := testutil.NewTestSaveGameDB(t)
+	reader := store.NewSqliteSaveGameReader(db, "")
+	ctx := context.Background()
+
+	retirees, err := reader.GetRetiredPlayers(ctx)
+	if err != nil {
+		t.Fatalf("GetRetiredPlayers: %v", err)
+	}
+	if len(retirees) != 1 {
+		t.Fatalf("expected 1 retiree, got %d: %+v", len(retirees), retirees)
+	}
+	r := retirees[0]
+	if r.StatsPlayerID != 7 {
+		t.Errorf("StatsPlayerID: want 7, got %d", r.StatsPlayerID)
+	}
+	if r.RetirementSeason != 100 {
+		t.Errorf("RetirementSeason: want 100, got %d", r.RetirementSeason)
+	}
+	if r.FirstName != "Retired" || r.LastName != "Guy" {
+		t.Errorf("name: want Retired Guy, got %q %q", r.FirstName, r.LastName)
+	}
+}
+
+func TestGetCurrentSeasonPlayers_CapturesStatsPlayerID(t *testing.T) {
+	db := testutil.NewTestSaveGameDB(t)
+	reader := store.NewSqliteSaveGameReader(db, "")
+	ctx := context.Background()
+
+	players, err := reader.GetCurrentSeasonPlayers(ctx, 100)
+	if err != nil {
+		t.Fatalf("GetCurrentSeasonPlayers: %v", err)
+	}
+	var foundAA bool
+	for _, p := range players {
+		if p.FirstName == "Test" && p.LastName == "Batter" {
+			foundAA = true
+			if p.StatsPlayerID != 1 {
+				t.Errorf("AA StatsPlayerID: want 1, got %d", p.StatsPlayerID)
+			}
+		}
+	}
+	if !foundAA {
+		t.Fatal("did not find Test Batter in season 100 players")
+	}
+}

@@ -177,6 +177,7 @@ type PlayerCareer struct {
 	IsHallOfFamer bool
 	Batting       *CareerBattingStats  // nil if player has no batting rows
 	Pitching      *CareerPitchingStats // nil if player has no pitching rows
+	RetiredAfterSeason *int                 // nil until retirement is observed
 }
 
 // PlayerTeamRef is one team entry in a player's season team history.

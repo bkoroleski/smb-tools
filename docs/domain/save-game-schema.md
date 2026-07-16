@@ -207,6 +207,8 @@ Player metadata for stats (joined to `t_stats`).
 | age | At time of stat record |
 | retirementSeason | Season number when retired; null if active |
 
+See [Player Retirement in SMB4](player-retirement.md) for the confirmed SMB4 trigger, identifier, and retention behavior.
+
 ### `t_stats_batting`
 
 Batting statistics (one row per player per stats aggregator).

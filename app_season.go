@@ -214,6 +214,7 @@ func (a *App) GetPlayerCareer(playerID int64) (PlayerCareerDTO, error) {
 		IsHallOfFamer: career.IsHallOfFamer,
 		Batting:       battingToDTO(career.Batting),
 		Pitching:      pitchingToDTO(career.Pitching),
+		RetiredAfterSeason: career.RetiredAfterSeason,
 	}, nil
 }
 

@@ -65,6 +65,7 @@ type SaveGamePlayer struct {
 	ThrowHand     string
 	BatHand       string
 	Pitches       []string
+	StatsPlayerID int
 }
 
 // SaveGameTeam is a team snapshot from the most recent season.
@@ -162,7 +163,6 @@ type SaveGameBattingStat struct {
 	SecondaryPos string
 	PitcherRole  string
 	Age          int
-	RetirementSeason *int
 	GamesPlayed  int
 	GamesBatting int
 	AtBats       int
@@ -194,7 +194,6 @@ type SaveGamePitchingStat struct {
 	Prev2Team    string
 	PitcherRole  string
 	Age          int
-	RetirementSeason *int
 	Wins         int
 	Losses       int
 	Games        int
@@ -214,4 +213,13 @@ type SaveGamePitchingStat struct {
 	GamesFinished int
 	RunsAllowed  int
 	WildPitches  int
+}
+
+// SaveGameRetiredPlayer is a t_stats_players row retained after the live player
+// row is deleted at retirement.
+type SaveGameRetiredPlayer struct {
+	StatsPlayerID    int
+	RetirementSeason int // save's t_seasons.ID
+	FirstName        string
+	LastName         string
 }

@@ -83,7 +83,7 @@ func (svc *ImportService) ImportSeason(
 
 // importInTx performs the actual import work within the provided transaction.
 //
-//nolint:gocognit // 14-step sequential pipeline — each step depends on the previous step's output; decomposing would scatter the pipeline state across many call sites without reducing real complexity
+//nolint:gocognit // 15-step sequential pipeline — each step depends on the previous step's output; decomposing would scatter the pipeline state across many call sites without reducing real complexity
 func (svc *ImportService) importInTx(
 	ctx context.Context,
 	tx *sql.Tx,
@@ -263,6 +263,23 @@ func (svc *ImportService) importInTx(
 	}
 	slog.Debug("import: step 14 complete", "step", "playoff config", "duration", time.Since(start).Round(time.Millisecond))
 
+	// ── 15. Retirements ──────────────────────────────────────────────────────
+	// Read every t_stats_players row whose retirementSeason is set and write
+	// retired_after_season_id on the matching companion players row (linked via
+	// stats_player_id, captured at import time while the player was still live).
+	// retirementSeason is resolved to a companion seasons.id through
+	// save_game_season_id. Idempotent; safe to run every sync.
+	retirees, err := reader.GetRetiredPlayers(ctx)
+	if err != nil {
+		slog.Error("import: step 15 failed", "step", "read retirements", "err", err)
+		return result, fmt.Errorf("reading retirements: %w", err)
+	}
+	if err := playerStore.ApplyRetirements(ctx, leagueGUID, retirees); err != nil {
+		slog.Error("import: step 15 failed", "step", "apply retirements", "err", err)
+		return result, fmt.Errorf("applying retirements: %w", err)
+	}
+	slog.Debug("import: step 15 complete", "step", "retirements", "retirees", len(retirees))
+
 	return result, nil
 }
 
@@ -335,6 +352,7 @@ func (svc *ImportService) importPlayers(
 			BatHand:       p.BatHand,
 			ThrowHand:     p.ThrowHand,
 			ChemistryType: p.ChemistryType,
+			StatsPlayerID: p.StatsPlayerID,
 		})
 		if err != nil {
 			return nil, nil, fmt.Errorf("upserting player %s: %w", p.PlayerGUID, err)

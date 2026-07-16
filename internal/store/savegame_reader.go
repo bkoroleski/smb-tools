@@ -76,6 +76,10 @@ type SaveGameReader interface {
 	// from the standard 9.
 	GetSeasonInningsPerGame(ctx context.Context, seasonID int) (int, error)
 
+	// GetRetiredPlayers returns stats rows retained after live player rows are
+	// deleted at retirement.
+	GetRetiredPlayers(ctx context.Context) ([]models.SaveGameRetiredPlayer, error)
+
 	// Close releases the underlying database connection.
 	Close() error
 }

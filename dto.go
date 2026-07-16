@@ -267,6 +267,7 @@ type PlayerCareerDTO struct {
 	IsHallOfFamer bool                    `json:"isHallOfFamer"`
 	Batting       *CareerBattingStatsDTO  `json:"batting"`
 	Pitching      *CareerPitchingStatsDTO `json:"pitching"`
+	RetiredAfterSeason *int                    `json:"retiredAfterSeason"`
 }
 
 // TeamRefDTO is a slim pointer to a team's season record, used in player

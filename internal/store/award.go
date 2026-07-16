@@ -687,11 +687,8 @@ func (s *AwardStore) GetSeasonChampionTeam(ctx context.Context, seasonID int64) 
 
 // ── Hall of Fame ──────────────────────────────────────────────────────────────
 
-// GetHoFCandidates returns a paginated list of players who appeared in at least
-// one season but are absent from the most recently imported season (retired) and
-// not yet inducted. lastSeasons limits results to players whose last season falls
-// within the past lastSeasons seasons; page and pageSize control pagination
-// (page is 1-based).
+// GetHoFCandidates returns a page of non-inducted retirees. Pagination is
+// 1-based; lastSeasons limits how many prior seasons are included.
 func (s *AwardStore) GetHoFCandidates(ctx context.Context, page, pageSize, lastSeasons int) (*models.HoFPage, error) {
 	return s.queryHoFPlayers(ctx, false, page, pageSize, lastSeasons)
 }
@@ -709,23 +706,21 @@ func (s *AwardStore) queryHoFPlayers(ctx context.Context, inducted bool, page, p
 		whereClause = `WHERE p.is_hall_of_famer = 1`
 	} else {
 		whereClause = `WHERE p.is_hall_of_famer = 0
-  AND p.id NOT IN (
-      SELECT player_id FROM player_seasons
-      WHERE season_id = (SELECT id FROM seasons ORDER BY season_num DESC LIMIT 1)
-  )`
+  AND p.retired_after_season_id IS NOT NULL`
 	}
 
 	baseFrom := `
 FROM players p
 JOIN player_seasons ps ON ps.player_id = p.id
 JOIN seasons s         ON s.id = ps.season_id
+LEFT JOIN seasons rs   ON rs.id = p.retired_after_season_id
 LEFT JOIN player_season_batting_stats b
     ON b.player_season_id = ps.id AND b.is_regular_season = 1
 LEFT JOIN player_season_pitching_stats pi
     ON pi.player_season_id = ps.id AND pi.is_regular_season = 1
 ` + whereClause + `
 GROUP BY p.id
-HAVING MAX(s.season_num) >= (SELECT MAX(season_num) FROM seasons) - ?`
+HAVING COALESCE(MAX(rs.season_num), MAX(s.season_num)) >= (SELECT MAX(season_num) FROM seasons) - ?`
 
 	var total int
 	countSQL := `SELECT COUNT(*) FROM (SELECT p.id ` + baseFrom + `)`
@@ -938,4 +933,3 @@ VALUES (?, ?)
 	}
 	return nil
 }
-

@@ -854,3 +854,6 @@ func (r *erroringReader) GetSeasonPlayoffConfig(ctx context.Context, seasonID in
 func (r *erroringReader) GetSeasonInningsPerGame(ctx context.Context, seasonID int) (int, error) {
 	return r.inner.GetSeasonInningsPerGame(ctx, seasonID)
 }
+func (r *erroringReader) GetRetiredPlayers(ctx context.Context) ([]models.SaveGameRetiredPlayer, error) {
+	return r.inner.GetRetiredPlayers(ctx)
+}

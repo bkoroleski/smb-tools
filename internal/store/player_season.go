@@ -3,6 +3,8 @@ package store
 import (
 	"context"
 	"fmt"
+
+	"smb-tools/internal/models"
 )
 
 // Player is the base player record identified by its save game GUID.
@@ -134,6 +136,7 @@ type PlayerIdentity struct {
 	BatHand       string
 	ThrowHand     string
 	ChemistryType string
+	StatsPlayerID int
 }
 
 // PlayerSeasonStore manages player and player_season records.
@@ -163,8 +166,8 @@ func (s *PlayerSeasonStore) UpsertPlayer(ctx context.Context, identity PlayerIde
 	).Scan(&id)
 	if err == nil {
 		_, _ = s.db.ExecContext(ctx,
-			`UPDATE players SET first_name = ?, last_name = ? WHERE id = ?`,
-			identity.FirstName, identity.LastName, id)
+			`UPDATE players SET first_name = ?, last_name = ?, stats_player_id = ? WHERE id = ?`,
+			identity.FirstName, identity.LastName, identity.StatsPlayerID, id)
 		return id, nil
 	}
 
@@ -174,8 +177,8 @@ func (s *PlayerSeasonStore) UpsertPlayer(ctx context.Context, identity PlayerIde
 	).Scan(&id)
 	if err == nil {
 		_, _ = s.db.ExecContext(ctx,
-			`UPDATE players SET first_name = ?, last_name = ? WHERE id = ?`,
-			identity.FirstName, identity.LastName, id)
+			`UPDATE players SET first_name = ?, last_name = ?, stats_player_id = ? WHERE id = ?`,
+			identity.FirstName, identity.LastName, identity.StatsPlayerID, id)
 		return id, nil
 	}
 
@@ -199,21 +202,67 @@ func (s *PlayerSeasonStore) UpsertPlayer(ctx context.Context, identity PlayerIde
 				`INSERT OR IGNORE INTO player_alt_guids (player_id, game_guid) VALUES (?, ?)`,
 				id, identity.GameGUID)
 			_, _ = s.db.ExecContext(ctx,
-				`UPDATE players SET first_name = ?, last_name = ? WHERE id = ?`,
-				identity.FirstName, identity.LastName, id)
+				`UPDATE players SET first_name = ?, last_name = ?, stats_player_id = ? WHERE id = ?`,
+				identity.FirstName, identity.LastName, identity.StatsPlayerID, id)
 			return id, nil
 		}
 	}
 
 	// No match — new player
 	res, err := s.db.ExecContext(ctx,
-		`INSERT INTO players (game_guid, first_name, last_name) VALUES (?, ?, ?)`,
-		identity.GameGUID, identity.FirstName, identity.LastName)
+		`INSERT INTO players (game_guid, first_name, last_name, stats_player_id) VALUES (?, ?, ?, ?)`,
+		identity.GameGUID, identity.FirstName, identity.LastName, identity.StatsPlayerID)
 	if err != nil {
 		return 0, fmt.Errorf("inserting player %s: %w", identity.GameGUID, err)
 	}
 	newID, _ := res.LastInsertId()
 	return newID, nil
+}
+
+// ApplyRetirements records retirement seasons for players matched by
+// stats_player_id. Unknown players and unimported seasons are skipped.
+func (s *PlayerSeasonStore) ApplyRetirements(
+	ctx context.Context,
+	leagueGUID string,
+	retirees []models.SaveGameRetiredPlayer,
+) error {
+	if len(retirees) == 0 {
+		return nil
+	}
+
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT save_game_season_id, id FROM seasons WHERE league_guid = ?`, leagueGUID)
+	if err != nil {
+		return fmt.Errorf("querying seasons for retirement resolution: %w", err)
+	}
+	seasonIDBySaveID := make(map[int]int64)
+	for rows.Next() {
+		var saveID, id int64
+		if err := rows.Scan(&saveID, &id); err != nil {
+			_ = rows.Close()
+			return fmt.Errorf("scanning season for retirement resolution: %w", err)
+		}
+		seasonIDBySaveID[int(saveID)] = id
+	}
+	if err := rows.Err(); err != nil {
+		_ = rows.Close()
+		return fmt.Errorf("iterating seasons for retirement resolution: %w", err)
+	}
+	_ = rows.Close()
+
+	for _, r := range retirees {
+		companionSeasonID, ok := seasonIDBySaveID[r.RetirementSeason]
+		if !ok {
+			continue
+		}
+		if _, err := s.db.ExecContext(ctx,
+			`UPDATE players SET retired_after_season_id = ? WHERE stats_player_id = ?`,
+			companionSeasonID, r.StatsPlayerID,
+		); err != nil {
+			return fmt.Errorf("applying retirement for stats player %d: %w", r.StatsPlayerID, err)
+		}
+	}
+	return nil
 }
 
 // UpsertSeason inserts or replaces a player_season record. Returns the ID.

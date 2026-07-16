@@ -17,8 +17,8 @@ The core mode these tools are built around. Key characteristics:
 - Multi-season play with full continuity: players age, retire, and accumulate career statistics
 - One team is "player-controlled"; the others are CPU-managed
 - **Payroll system**: each team has a budget; players have salaries (stored internally in game units, displayed as units × 200)
-- **Player lifecycle**: players progress through ages, eventually retiring; the game only surfaces stats for currently active players, making external history tracking essential
-- **50-season limit**: the game's own franchise history UI only retains the most recent ~50 seasons of data; stats from earlier seasons are discarded unless externally captured
+- **Player lifecycle**: players progress through ages, eventually retiring and retaining career history; external tracking preserves detail beyond the game's retention limits
+- **50-season limit**: the game's franchise history focuses on the newest ~50 seasons; ordinary older stats are discarded unless externally captured, while leader and season identity records are preserved
 - Standings, schedules, and playoff brackets are all persisted in the save file
 
 ### Season Mode

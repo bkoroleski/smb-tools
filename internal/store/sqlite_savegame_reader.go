@@ -148,6 +148,7 @@ func (r *SqliteSaveGameReader) GetCurrentSeasonPlayers(ctx context.Context, seas
 		SELECT
 			hex(bp.GUID)                                  AS playerGUID,
 			? AS seasonID,
+			sp.statsPlayerID                              AS statsPlayerID,
 			COALESCE(vbpi.firstName,       sp.firstName, '')           AS firstName,
 			COALESCE(vbpi.lastName,        sp.lastName,  '')           AS lastName,
 			COALESCE(vbpi.primaryPosition, sp.primaryPos, '')          AS rawPrimaryPos,
@@ -217,7 +218,7 @@ func (r *SqliteSaveGameReader) GetCurrentSeasonPlayers(ctx context.Context, seas
 		var rawPrimaryPos, rawPitcherRole string
 		var throwCode, batCode, chemCode sql.NullInt64
 		if err := rows.Scan(
-			&p.PlayerGUID, &p.SeasonID,
+			&p.PlayerGUID, &p.SeasonID, &p.StatsPlayerID,
 			&p.FirstName, &p.LastName,
 			&rawPrimaryPos, &p.SecondaryPos, &rawPitcherRole,
 			&p.CurrentTeam, &p.PreviousTeam, &p.Prev2Team,
@@ -445,6 +446,32 @@ func (r *SqliteSaveGameReader) GetCareerPitchingStats(ctx context.Context) ([]mo
 	)
 }
 
+// GetRetiredPlayers reads t_stats_players directly because retired players no
+// longer have live rows.
+func (r *SqliteSaveGameReader) GetRetiredPlayers(ctx context.Context) ([]models.SaveGameRetiredPlayer, error) {
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT statsPlayerID, retirementSeason,
+		       COALESCE(firstName, ''), COALESCE(lastName, '')
+		FROM t_stats_players
+		WHERE retirementSeason IS NOT NULL
+		ORDER BY lastName, firstName
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("querying retired players: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	var out []models.SaveGameRetiredPlayer
+	for rows.Next() {
+		var p models.SaveGameRetiredPlayer
+		if err := rows.Scan(&p.StatsPlayerID, &p.RetirementSeason, &p.FirstName, &p.LastName); err != nil {
+			return nil, fmt.Errorf("scanning retired player: %w", err)
+		}
+		out = append(out, p)
+	}
+	return out, rows.Err()
+}
+
 // ---- private helpers -------------------------------------------------------
 
 // queryBattingStats uses `args ...any` because it passes arguments directly to
@@ -463,7 +490,7 @@ func (r *SqliteSaveGameReader) queryBattingStats(ctx context.Context, joinClause
 			COALESCE(sp.primaryPos, ''),
 			COALESCE(sp.secondaryPos, ''),
 			COALESCE(sp.pitcherRole, ''),
-			COALESCE(sp.age, 0), sp.retirementSeason,
+			COALESCE(sp.age, 0),
 			COALESCE(b.gamesPlayed, 0), COALESCE(b.gamesBatting, 0),
 			COALESCE(b.atBats, 0), COALESCE(b.runs, 0), COALESCE(b.hits, 0),
 			COALESCE(b.doubles, 0), COALESCE(b.triples, 0),
@@ -505,7 +532,7 @@ func (r *SqliteSaveGameReader) queryPitchingStats(ctx context.Context, joinClaus
 			COALESCE(mrt.teamName, ''),
 			COALESCE(pmrt.teamName, ''),
 			COALESCE(sp.pitcherRole, ''),
-			COALESCE(sp.age, 0), sp.retirementSeason,
+			COALESCE(sp.age, 0),
 			COALESCE(p.wins, 0), COALESCE(p.losses, 0),
 			COALESCE(p.games, 0), COALESCE(p.gamesStarted, 0),
 			COALESCE(p.completeGames, 0), COALESCE(p.totalPitches, 0),
@@ -588,7 +615,7 @@ func scanBattingStats(rows *sql.Rows) ([]models.SaveGameBattingStat, error) {
 			&s.FirstName, &s.LastName,
 			&s.CurrentTeam, &s.PrevTeam, &s.Prev2Team,
 			&s.PrimaryPos, &s.SecondaryPos, &s.PitcherRole,
-			&s.Age, &s.RetirementSeason,
+			&s.Age,
 			&s.GamesPlayed, &s.GamesBatting, &s.AtBats, &s.Runs,
 			&s.Hits, &s.Doubles, &s.Triples, &s.HomeRuns, &s.RBI,
 			&s.StolenBases, &s.CaughtStealing, &s.Walks, &s.Strikeouts,
@@ -609,7 +636,7 @@ func scanPitchingStats(rows *sql.Rows) ([]models.SaveGamePitchingStat, error) {
 			&s.AggregatorID, &s.PlayerGUID,
 			&s.FirstName, &s.LastName,
 			&s.CurrentTeam, &s.PrevTeam, &s.Prev2Team,
-			&s.PitcherRole, &s.Age, &s.RetirementSeason,
+			&s.PitcherRole, &s.Age,
 			&s.Wins, &s.Losses, &s.Games, &s.GamesStarted,
 			&s.CompleteGames, &s.TotalPitches, &s.Shutouts, &s.Saves,
 			&s.OutsPitched, &s.HitsAllowed, &s.EarnedRuns, &s.HomeRunsAllowed,

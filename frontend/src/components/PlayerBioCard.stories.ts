@@ -52,6 +52,13 @@ export const HallOfFamer: Story = {
   },
 }
 
+export const Retired: Story = {
+  args: {
+    player: new main.PlayerCareerDTO({ ...basePlayer, retiredAfterSeason: 8 }),
+    currentSeason: baseSeason,
+  },
+}
+
 export const Pitcher: Story = {
   args: {
     player: new main.PlayerCareerDTO({ playerId: 2, firstName: 'Randy', lastName: 'Johnson', isHallOfFamer: false }),

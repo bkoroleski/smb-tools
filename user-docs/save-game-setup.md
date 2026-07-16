@@ -74,6 +74,8 @@ A full season in SMB4 has two phases, and timing matters:
 
 ::: danger Sync before advancing to the offseason
 Advancing to the offseason in-game triggers data compaction that permanently removes per-game stat detail from the save file. Always sync after the playoffs **before** pressing the button to start the offseason. Miss this window and the playoff stats for that season can't be recovered from the save file.
+
+Players actually retire when the next season begins. Sync before advancing to preserve their final season's per-game detail. Once the next season has started, the retirement flag is present in the save and smb-tools can detect it during any sync that season, not only during the pre-season draft state.
 :::
 
 Each sync result shows how many players, teams, and games were imported. If playoff games appear in the count, the playoff sync was successful.

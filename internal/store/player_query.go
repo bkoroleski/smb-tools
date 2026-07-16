@@ -70,10 +70,15 @@ LIMIT 50
 func (s *PlayerQueryStore) GetPlayerCareer(ctx context.Context, playerID int64) (models.PlayerCareer, error) {
 	var c models.PlayerCareer
 	var hof int
+	var retiredAfterSeason sql.NullInt64
 	err := s.db.QueryRowContext(ctx,
-		`SELECT id, first_name, last_name, is_hall_of_famer FROM players WHERE id = ?`,
+		`SELECT p.id, p.first_name, p.last_name, p.is_hall_of_famer,
+		        rs.season_num AS retired_after_season_num
+		 FROM players p
+		 LEFT JOIN seasons rs ON rs.id = p.retired_after_season_id
+		 WHERE p.id = ?`,
 		playerID,
-	).Scan(&c.PlayerID, &c.FirstName, &c.LastName, &hof)
+	).Scan(&c.PlayerID, &c.FirstName, &c.LastName, &hof, &retiredAfterSeason)
 	if err != nil {
 		return c, fmt.Errorf("getting player %d: %w", playerID, err)
 	}
@@ -158,6 +163,11 @@ WHERE player_id = ? AND stat_type = 'total_career'
 		if p.OutsPitched > 0 || p.Games > 0 {
 			c.Pitching = p
 		}
+	}
+
+	if retiredAfterSeason.Valid {
+		retirementSeasonNum := int(retiredAfterSeason.Int64)
+		c.RetiredAfterSeason = &retirementSeasonNum
 	}
 
 	return c, nil
