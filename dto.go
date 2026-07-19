@@ -86,11 +86,15 @@ type UploadMediaRequest struct {
 
 // SnapshotDTO represents one captured save game snapshot for the active franchise.
 type SnapshotDTO struct {
-	ID            int64  `json:"id"`
-	SeasonNum     int    `json:"seasonNum"`
-	CapturedAt    string `json:"capturedAt"` // ISO 8601
-	FileSizeBytes int64  `json:"fileSizeBytes"`
-	FileExists    bool   `json:"fileExists"`
+	ID               int64   `json:"id"`
+	SeasonNum        int     `json:"seasonNum"`
+	CapturedAt       string  `json:"capturedAt"` // ISO 8601
+	FileSizeBytes    int64   `json:"fileSizeBytes"`
+	FileExists       bool    `json:"fileExists"`
+	Phase            *string `json:"phase"`
+	GameNumber       *int    `json:"gameNumber"`
+	OpponentTeamName *string `json:"opponentTeamName"`
+	IsHome           *bool   `json:"isHome"`
 }
 
 // ReimportSeasonResult is the DTO returned after a successful snapshot reimport.

@@ -2093,6 +2093,10 @@ export namespace main {
 	    capturedAt: string;
 	    fileSizeBytes: number;
 	    fileExists: boolean;
+	    phase?: string;
+	    gameNumber?: number;
+	    opponentTeamName?: string;
+	    isHome?: boolean;
 	
 	    static createFrom(source: any = {}) {
 	        return new SnapshotDTO(source);
@@ -2105,6 +2109,10 @@ export namespace main {
 	        this.capturedAt = source["capturedAt"];
 	        this.fileSizeBytes = source["fileSizeBytes"];
 	        this.fileExists = source["fileExists"];
+	        this.phase = source["phase"];
+	        this.gameNumber = source["gameNumber"];
+	        this.opponentTeamName = source["opponentTeamName"];
+	        this.isHome = source["isHome"];
 	    }
 	}
 	export class SnapshotExportCandidateDTO {

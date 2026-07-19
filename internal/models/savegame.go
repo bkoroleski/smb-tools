@@ -35,6 +35,14 @@ type SaveGameSeasonInfo struct {
 	SeasonNum int
 }
 
+// SaveGameSeasonProgress is the minimal season state needed to classify a
+// snapshot without changing the schedule import query.
+type SaveGameSeasonProgress struct {
+	IsComplete     bool
+	ScheduledGames int
+	CompletedGames int
+}
+
 // SaveGamePlayer is a player snapshot from the most recent season, combining
 // attributes, traits, salary, and position data.
 type SaveGamePlayer struct {
@@ -141,6 +149,16 @@ type SaveGamePlayoffGame struct {
 	HomePitcherName *string
 	AwayPitcherGUID *string
 	AwayPitcherName *string
+}
+
+// SaveGamePlayoffSeries identifies the teams assigned to one playoff series.
+// SeriesNum is the save game's bracket-wide series number, not a round number.
+type SaveGamePlayoffSeries struct {
+	SeriesNum int
+	Team1GUID string
+	Team1Name string
+	Team2GUID string
+	Team2Name string
 }
 
 // SaveGamePlayoffConfig holds the bracket configuration read from t_playoffs.

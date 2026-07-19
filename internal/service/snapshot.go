@@ -33,7 +33,12 @@ func NewSnapshotService(snapshotDir string, snapshotStore *store.SnapshotStore) 
 // most recent snapshot (by SHA-256 hash). If they do, it persists a new
 // snapshot file and records metadata. Returns the snapshot ID and whether a
 // new snapshot was written (false = identical to the last one).
-func (s *SnapshotService) TakeSnapshot(ctx context.Context, decompressedBytes []byte, seasonNum int) (id int64, isNew bool, err error) {
+func (s *SnapshotService) TakeSnapshot(
+	ctx context.Context,
+	decompressedBytes []byte,
+	seasonNum int,
+	metadata *store.SnapshotMetadata,
+) (id int64, isNew bool, err error) {
 	hash := sha256Sum(decompressedBytes)
 
 	latest, err := s.snapshotStore.LatestHash(ctx)
@@ -64,6 +69,7 @@ func (s *SnapshotService) TakeSnapshot(ctx context.Context, decompressedBytes []
 		FileName:      fileName,
 		SHA256Hash:    hash,
 		FileSizeBytes: int64(len(decompressedBytes)),
+		Metadata:      metadata,
 	}
 	snapshotID, err := s.snapshotStore.Record(ctx, snap)
 	if err != nil {
@@ -78,7 +84,12 @@ func (s *SnapshotService) TakeSnapshot(ctx context.Context, decompressedBytes []
 // TakeSnapshotFromFile reads a decompressed SQLite file from disk and runs
 // TakeSnapshot on its contents. Use when the save has already been
 // decompressed to a temp file.
-func (s *SnapshotService) TakeSnapshotFromFile(ctx context.Context, srcPath string, seasonNum int) (id int64, isNew bool, err error) {
+func (s *SnapshotService) TakeSnapshotFromFile(
+	ctx context.Context,
+	srcPath string,
+	seasonNum int,
+	metadata *store.SnapshotMetadata,
+) (id int64, isNew bool, err error) {
 	f, err := os.Open(srcPath)
 	if err != nil {
 		return 0, false, fmt.Errorf("opening source file: %w", err)
@@ -89,7 +100,7 @@ func (s *SnapshotService) TakeSnapshotFromFile(ctx context.Context, srcPath stri
 	if err != nil {
 		return 0, false, fmt.Errorf("reading source file: %w", err)
 	}
-	return s.TakeSnapshot(ctx, data, seasonNum)
+	return s.TakeSnapshot(ctx, data, seasonNum, metadata)
 }
 
 // sha256Sum returns the SHA256Hex of data.

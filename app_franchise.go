@@ -287,13 +287,21 @@ func (a *App) ListSnapshots() ([]SnapshotDTO, error) {
 	for i, sn := range snaps {
 		absPath := a.dirs.SnapshotsDir(a.activeFranchise.ID) + "/" + string(sn.FileName)
 		_, statErr := os.Stat(absPath)
-		out[i] = SnapshotDTO{
+		dto := SnapshotDTO{
 			ID:            sn.ID,
 			SeasonNum:     sn.SeasonNum,
 			CapturedAt:    sn.CapturedAt.UTC().Format("2006-01-02T15:04:05Z"),
 			FileSizeBytes: sn.FileSizeBytes,
 			FileExists:    statErr == nil,
 		}
+		if sn.Metadata != nil {
+			phase := string(sn.Metadata.Phase)
+			dto.Phase = &phase
+			dto.GameNumber = sn.Metadata.GameNumber
+			dto.OpponentTeamName = sn.Metadata.OpponentTeamName
+			dto.IsHome = sn.Metadata.IsHome
+		}
+		out[i] = dto
 	}
 	return out, nil
 }

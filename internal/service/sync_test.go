@@ -2,10 +2,12 @@ package service_test
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
 
+	"smb-tools/internal/models"
 	"smb-tools/internal/service"
 	"smb-tools/internal/store"
 	"smb-tools/internal/testutil"
@@ -83,11 +85,65 @@ func TestSyncSeason_TakesSnapshotOnFirstSync(t *testing.T) {
 	if len(snaps) != 1 {
 		t.Fatalf("expected 1 snapshot record, got %d", len(snaps))
 	}
+	if snaps[0].Metadata == nil || snaps[0].Metadata.Phase != store.SnapshotPhaseEndRegularSeason {
+		t.Errorf("snapshot metadata: got %+v, want end of regular season", snaps[0].Metadata)
+	}
 
 	// Snapshot file must exist on disk.
 	snapPath := filepath.Join(snapshotDir, string(snaps[0].FileName))
 	if _, err := os.Stat(snapPath); os.IsNotExist(err) {
 		t.Errorf("snapshot file not found on disk: %s", snapPath)
+	}
+}
+
+type progressOverrideReader struct {
+	store.SaveGameReader
+	progress models.SaveGameSeasonProgress
+	err      error
+}
+
+func (r progressOverrideReader) GetSeasonProgress(context.Context, int) (models.SaveGameSeasonProgress, error) {
+	return r.progress, r.err
+}
+
+func TestSyncSeason_PhaseDetectionDoesNotBlockSnapshotOrImport(t *testing.T) {
+	tests := []struct {
+		name     string
+		progress models.SaveGameSeasonProgress
+		err      error
+	}{
+		{name: "unknown state"},
+		{name: "reader failure", err: errors.New("phase query failed")},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			svc, snapshotStore, _ := newTestSyncService(t)
+			companionDB := testutil.NewTestDB(t)
+			reader := progressOverrideReader{
+				SaveGameReader: newTestReader(t),
+				progress:       tt.progress,
+				err:            tt.err,
+			}
+			saveFilePath := writeSaveFile(t, []byte("phase detection fallback "+tt.name))
+
+			result, err := svc.SyncSeason(
+				context.Background(), companionDB, reader, saveFilePath, leagueGUIDFixture, 0,
+			)
+			if err != nil {
+				t.Fatalf("SyncSeason: %v", err)
+			}
+			if result.Players == 0 || !result.IsNewSnapshot {
+				t.Errorf("sync result: got %+v, want successful import and snapshot", result)
+			}
+			snaps, err := snapshotStore.List(context.Background())
+			if err != nil {
+				t.Fatalf("List: %v", err)
+			}
+			if len(snaps) != 1 || snaps[0].Metadata != nil {
+				t.Errorf("snapshots: got %+v, want one snapshot with null metadata", snaps)
+			}
+		})
 	}
 }
 
@@ -157,6 +213,9 @@ func TestSyncSeason_DeduplicatesIdenticalSave(t *testing.T) {
 	}
 	if len(snaps) != 1 {
 		t.Errorf("expected 1 snapshot record after two identical syncs, got %d", len(snaps))
+	}
+	if len(snaps) == 1 && (snaps[0].Metadata == nil || snaps[0].Metadata.Phase != store.SnapshotPhaseEndRegularSeason) {
+		t.Errorf("deduplicated snapshot metadata: got %+v, want one end-of-regular-season row", snaps[0].Metadata)
 	}
 	entries, _ := os.ReadDir(snapshotDir)
 	if len(entries) != 1 {
