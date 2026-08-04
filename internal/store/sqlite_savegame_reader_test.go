@@ -8,6 +8,64 @@ import (
 	"smb-tools/internal/testutil"
 )
 
+func TestGetUserTeamGUID(t *testing.T) {
+	db := testutil.NewTestSaveGameDB(t)
+	reader := store.NewSqliteSaveGameReader(db, "")
+
+	guid, err := reader.GetUserTeamGUID(context.Background(), "EE000000000000000000000000000000")
+	if err != nil {
+		t.Fatalf("GetUserTeamGUID: %v", err)
+	}
+	if guid != "01000000000000000000000000000000" {
+		t.Errorf("GUID: got %q, want test franchise team GUID", guid)
+	}
+}
+
+func TestGetSeasonProgress(t *testing.T) {
+	db := testutil.NewTestSaveGameDB(t)
+	reader := store.NewSqliteSaveGameReader(db, "")
+
+	progress, err := reader.GetSeasonProgress(context.Background(), 100)
+	if err != nil {
+		t.Fatalf("GetSeasonProgress: %v", err)
+	}
+	if progress.IsComplete {
+		t.Error("IsComplete: got true, want false")
+	}
+	if progress.ScheduledGames != 2 || progress.CompletedGames != 2 {
+		t.Errorf("game counts: got %d/%d, want 2/2", progress.CompletedGames, progress.ScheduledGames)
+	}
+
+	if _, err := db.ExecContext(context.Background(), `
+		UPDATE t_seasons SET completionDate = 1783793548 WHERE ID = 100
+	`); err != nil {
+		t.Fatalf("setting completion date: %v", err)
+	}
+	progress, err = reader.GetSeasonProgress(context.Background(), 100)
+	if err != nil {
+		t.Fatalf("GetSeasonProgress after completion: %v", err)
+	}
+	if !progress.IsComplete {
+		t.Error("IsComplete after completion date: got false, want true")
+	}
+}
+
+func TestGetPlayoffSeries_IncludesCreatedSeries(t *testing.T) {
+	db := testutil.NewTestSaveGameDB(t)
+	reader := store.NewSqliteSaveGameReader(db, "")
+
+	series, err := reader.GetPlayoffSeries(context.Background(), 100)
+	if err != nil {
+		t.Fatalf("GetPlayoffSeries: %v", err)
+	}
+	if len(series) != 1 {
+		t.Fatalf("series count: got %d, want 1", len(series))
+	}
+	if series[0].SeriesNum != 1 || series[0].Team1Name != "Home Squad" || series[0].Team2Name != "Away Crew" {
+		t.Errorf("series: got %+v, want series 1 Home Squad vs Away Crew", series[0])
+	}
+}
+
 func TestGetSeasonPlayoffConfig_Found(t *testing.T) {
 	// Season 100 has a t_playoffs row with rounds=1, seriesLength=5.
 	db := testutil.NewTestSaveGameDB(t)

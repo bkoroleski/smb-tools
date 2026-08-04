@@ -57,6 +57,7 @@ Documents the second original app: a Baseball Reference–style franchise histor
 |------|----------|
 | [companion-issues.md](companion-issues.md) | All open GitHub issues from SmbExplorerCompanion with space for rewrite notes |
 | [data-export-roadmap.md](data-export-roadmap.md) | Three-phase plan for the Data Export feature: MVP (done), flexible user filters, full 8-dataset catalog |
+| [snapshot-labels.md](snapshot-labels.md) | Confirmed save-state signals and proposed Franchise/Season snapshot label behavior |
 
 ## Reading Order
 

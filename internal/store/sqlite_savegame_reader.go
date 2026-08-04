@@ -115,6 +115,49 @@ func (r *SqliteSaveGameReader) GetCurrentSeason(ctx context.Context, leagueGUID 
 	return info, nil
 }
 
+func (r *SqliteSaveGameReader) GetUserTeamGUID(ctx context.Context, leagueGUID string) (string, error) {
+	var row *sql.Row
+	if leagueGUID == "" {
+		row = r.db.QueryRowContext(ctx, `
+			SELECT hex(f.playerTeamGUID)
+			FROM t_franchise f
+			LIMIT 1
+		`)
+	} else {
+		row = r.db.QueryRowContext(ctx, `
+			SELECT hex(f.playerTeamGUID)
+			FROM t_franchise f
+			WHERE hex(f.leagueGUID) = ?
+			LIMIT 1
+		`, leagueGUID)
+	}
+
+	var guid string
+	if err := row.Scan(&guid); err != nil {
+		return "", fmt.Errorf("querying user-controlled team GUID: %w", err)
+	}
+	if guid == "" {
+		return "", fmt.Errorf("user-controlled team GUID is empty")
+	}
+	return guid, nil
+}
+
+func (r *SqliteSaveGameReader) GetSeasonProgress(ctx context.Context, seasonID int) (models.SaveGameSeasonProgress, error) {
+	var progress models.SaveGameSeasonProgress
+	err := r.db.QueryRowContext(ctx, `
+		SELECT
+			ts.completionDate IS NOT NULL,
+			(SELECT COUNT(*) FROM t_season_schedule ss WHERE ss.seasonID = ts.ID),
+			(SELECT COUNT(*) FROM t_season_games sg WHERE sg.seasonID = ts.ID)
+		FROM t_seasons ts
+		WHERE ts.ID = ?
+	`, seasonID).Scan(&progress.IsComplete, &progress.ScheduledGames, &progress.CompletedGames)
+	if err != nil {
+		return models.SaveGameSeasonProgress{}, fmt.Errorf("querying progress for season %d: %w", seasonID, err)
+	}
+	return progress, nil
+}
+
 func (r *SqliteSaveGameReader) GetFranchiseSeasons(ctx context.Context, leagueGUID string) ([]models.SaveGameFranchiseSeason, error) {
 	// Mirrors SMB3Explorer's FranchiseSeasons.sql: join t_seasons → t_leagues by GUID.
 	// t_seasons.id is the integer PK used throughout the save game as the season key.
@@ -374,6 +417,40 @@ func (r *SqliteSaveGameReader) GetPlayoffSchedule(ctx context.Context, seasonID 
 	}
 	defer func() { _ = rows.Close() }()
 	return scanPlayoffGames(rows)
+}
+
+func (r *SqliteSaveGameReader) GetPlayoffSeries(ctx context.Context, seasonID int) ([]models.SaveGamePlayoffSeries, error) {
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT
+			tps.seriesNumber,
+			hex(tps.team1GUID), COALESCE(t1.teamName, ''),
+			hex(tps.team2GUID), COALESCE(t2.teamName, '')
+		FROM t_playoffs tp
+		JOIN t_seasons ts ON ts.GUID = tp.seasonGUID
+		JOIN t_playoff_series tps ON tps.playoffGUID = tp.GUID
+		JOIN t_teams t1 ON t1.GUID = tps.team1GUID
+		JOIN t_teams t2 ON t2.GUID = tps.team2GUID
+		WHERE ts.ID = ?
+		ORDER BY tps.seriesNumber
+	`, seasonID)
+	if err != nil {
+		return nil, fmt.Errorf("querying playoff series for season %d: %w", seasonID, err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	var series []models.SaveGamePlayoffSeries
+	for rows.Next() {
+		var item models.SaveGamePlayoffSeries
+		if err := rows.Scan(
+			&item.SeriesNum,
+			&item.Team1GUID, &item.Team1Name,
+			&item.Team2GUID, &item.Team2Name,
+		); err != nil {
+			return nil, fmt.Errorf("scanning playoff series: %w", err)
+		}
+		series = append(series, item)
+	}
+	return series, rows.Err()
 }
 
 func (r *SqliteSaveGameReader) GetSeasonPlayoffConfig(ctx context.Context, seasonID int) (*models.SaveGamePlayoffConfig, error) {

@@ -15,7 +15,7 @@ func TestTakeSnapshot_NewSnapshot(t *testing.T) {
 	svc := service.NewSnapshotService(snapshotDir, store.NewSnapshotStore(db))
 
 	data := []byte("fake sqlite content for season 1")
-	id, isNew, err := svc.TakeSnapshot(context.Background(), data, 1)
+	id, isNew, err := svc.TakeSnapshot(context.Background(), data, 1, nil)
 	if err != nil {
 		t.Fatalf("TakeSnapshot: %v", err)
 	}
@@ -33,12 +33,12 @@ func TestTakeSnapshot_Idempotent(t *testing.T) {
 	svc := service.NewSnapshotService(snapshotDir, store.NewSnapshotStore(db))
 
 	data := []byte("same content both times")
-	_, _, err := svc.TakeSnapshot(context.Background(), data, 1)
+	_, _, err := svc.TakeSnapshot(context.Background(), data, 1, nil)
 	if err != nil {
 		t.Fatalf("first TakeSnapshot: %v", err)
 	}
 
-	id2, isNew, err := svc.TakeSnapshot(context.Background(), data, 1)
+	id2, isNew, err := svc.TakeSnapshot(context.Background(), data, 1, nil)
 	if err != nil {
 		t.Fatalf("second TakeSnapshot: %v", err)
 	}
@@ -55,8 +55,8 @@ func TestTakeSnapshot_DifferentContent(t *testing.T) {
 	snapshotDir := t.TempDir()
 	svc := service.NewSnapshotService(snapshotDir, store.NewSnapshotStore(db))
 
-	_, _, _ = svc.TakeSnapshot(context.Background(), []byte("season 1 data"), 1)
-	id2, isNew, err := svc.TakeSnapshot(context.Background(), []byte("season 2 data"), 2)
+	_, _, _ = svc.TakeSnapshot(context.Background(), []byte("season 1 data"), 1, nil)
+	id2, isNew, err := svc.TakeSnapshot(context.Background(), []byte("season 2 data"), 2, nil)
 	if err != nil {
 		t.Fatalf("second TakeSnapshot: %v", err)
 	}

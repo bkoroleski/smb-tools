@@ -33,6 +33,32 @@ function formatSize(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
 }
 
+function formatSnapshotLabel(snap: main.SnapshotDTO): string {
+  const season = `Season ${snap.seasonNum}`
+  switch (snap.phase) {
+    case 'preseason':
+      return `${season} - Pre-season`
+    case 'regular_season':
+      if (snap.gameNumber != null && snap.opponentTeamName && snap.isHome != null) {
+        return `${season} - After Game ${snap.gameNumber} (${snap.isHome ? 'vs' : '@'} ${snap.opponentTeamName})`
+      }
+      return season
+    case 'end_regular_season':
+      return `${season} - End of regular season`
+    case 'playoffs':
+      if (snap.gameNumber != null && snap.opponentTeamName && snap.isHome != null) {
+        return `${season} - After playoff game ${snap.gameNumber} (${snap.isHome ? 'vs' : '@'} ${snap.opponentTeamName})`
+      }
+      return `${season} - Playoffs`
+    case 'playoffs_eliminated':
+      return `${season} - Playoffs (Team eliminated)`
+    case 'end_season':
+      return `${season} - End of season`
+    default:
+      return season
+  }
+}
+
 function handleSelect(snap: main.SnapshotDTO) {
   if (!snap.fileExists) return
   emit('update:selectedId', snap.id)
@@ -58,7 +84,7 @@ function handleSelect(snap: main.SnapshotDTO) {
         @click="handleSelect(snap)"
       >
         <div class="snapshot-info">
-          <span class="snapshot-season">Season {{ snap.seasonNum }}</span>
+          <span class="snapshot-season">{{ formatSnapshotLabel(snap) }}</span>
           <span class="snapshot-meta">
             {{ formatDate(snap.capturedAt) }} · {{ formatSize(snap.fileSizeBytes) }}
           </span>

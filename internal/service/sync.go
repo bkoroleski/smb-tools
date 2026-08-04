@@ -58,9 +58,16 @@ func (s *SyncService) SyncSeason(
 	}
 
 	displaySeasonNum := seasonInfo.SeasonNum + seasonOffset
+	metadata, metadataErr := DetectSnapshotMetadata(ctx, reader, seasonInfo.SeasonID, leagueGUID)
+	if metadataErr != nil {
+		slog.Warn("sync: detecting snapshot phase; capturing without phase metadata", "seasonNum", displaySeasonNum, "err", metadataErr)
+		metadata = nil
+	} else if metadata == nil {
+		slog.Warn("sync: snapshot phase undetermined; capturing without phase metadata", "seasonNum", displaySeasonNum)
+	}
 	slog.Info("sync: taking snapshot", "seasonNum", displaySeasonNum)
 
-	snapshotID, isNew, err := s.snapshot.TakeSnapshotFromFile(ctx, saveFilePath, displaySeasonNum)
+	snapshotID, isNew, err := s.snapshot.TakeSnapshotFromFile(ctx, saveFilePath, displaySeasonNum, metadata)
 	if err != nil {
 		slog.Error("sync: taking snapshot", "seasonNum", displaySeasonNum, "err", err)
 		return SyncResult{}, fmt.Errorf("taking snapshot for season %d: %w", displaySeasonNum, err)

@@ -848,6 +848,15 @@ func (r *erroringReader) GetCareerPitchingStats(ctx context.Context) ([]models.S
 func (r *erroringReader) GetCurrentSeason(ctx context.Context, leagueGUID string) (models.SaveGameSeasonInfo, error) {
 	return r.inner.GetCurrentSeason(ctx, leagueGUID)
 }
+func (r *erroringReader) GetUserTeamGUID(ctx context.Context, leagueGUID string) (string, error) {
+	return r.inner.GetUserTeamGUID(ctx, leagueGUID)
+}
+func (r *erroringReader) GetSeasonProgress(ctx context.Context, seasonID int) (models.SaveGameSeasonProgress, error) {
+	return r.inner.GetSeasonProgress(ctx, seasonID)
+}
+func (r *erroringReader) GetPlayoffSeries(ctx context.Context, seasonID int) ([]models.SaveGamePlayoffSeries, error) {
+	return r.inner.GetPlayoffSeries(ctx, seasonID)
+}
 func (r *erroringReader) GetSeasonPlayoffConfig(ctx context.Context, seasonID int) (*models.SaveGamePlayoffConfig, error) {
 	return r.inner.GetSeasonPlayoffConfig(ctx, seasonID)
 }

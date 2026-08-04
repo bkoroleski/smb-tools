@@ -71,6 +71,17 @@ type SaveGameReader interface {
 	// saves), returns the latest season across all franchise seasons.
 	GetCurrentSeason(ctx context.Context, leagueGUID string) (models.SaveGameSeasonInfo, error)
 
+	// GetUserTeamGUID returns the GUID of the user-controlled franchise team.
+	GetUserTeamGUID(ctx context.Context, leagueGUID string) (string, error)
+
+	// GetSeasonProgress returns whether the season is complete and the league-wide
+	// scheduled-versus-played regular-season game counts.
+	GetSeasonProgress(ctx context.Context, seasonID int) (models.SaveGameSeasonProgress, error)
+
+	// GetPlayoffSeries returns every playoff series created for the season,
+	// including series that do not yet have a completed game.
+	GetPlayoffSeries(ctx context.Context, seasonID int) ([]models.SaveGamePlayoffSeries, error)
+
 	// GetSeasonInningsPerGame returns t_seasons.innings for the given season —
 	// the number of innings per regulation game, which SMB4 allows to vary
 	// from the standard 9.

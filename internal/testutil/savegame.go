@@ -56,7 +56,8 @@ func createSaveGameSchema(db *sql.DB) error {
 			GUID                  BLOB,
 			historicalLeagueGUID  BLOB NOT NULL REFERENCES t_leagues(GUID),
 			elimination           INTEGER NOT NULL DEFAULT 0,
-			innings               INTEGER NOT NULL DEFAULT 9
+			innings               INTEGER NOT NULL DEFAULT 9,
+			completionDate        DATETIME
 		);
 		-- t_franchise_seasons retained for structural completeness; no longer
 		-- used by any reader query (GetCurrentSeason uses t_seasons directly).
