@@ -2,6 +2,7 @@ package store_test
 
 import (
 	"context"
+	"database/sql"
 	"slices"
 	"testing"
 
@@ -1178,6 +1179,277 @@ func TestGetSeasonAwardSummary_NilSmbWARWhenNull(t *testing.T) {
 	}
 }
 
+// ── Auto-suggest: MVP, Cy Young, ROY ──────────────────────────────────────────
+
+func TestAutoSuggest_MVP_CyYoung_ROY(t *testing.T) {
+	db := testutil.NewTestDB(t)
+	ctx := context.Background()
+	s := store.NewAwardStore(db)
+
+	season := seedSeason(t, db, 1, 1, 40)
+	team := seedTeam(t, db, "AS1")
+	th := seedTeamHistory(t, db, team, season, "Auto Team", "", "", 20, 20)
+
+	// 3 batters with descending smbWAR — all rookies (first season).
+	b1 := seedPlayer(t, db, "AB1", "Top", "Batter")
+	ps1 := seedPlayerSeason(t, db, b1, season, &th)
+	seedBatting(t, db, ps1, true, 150, 50, 20, 80)
+	setBattingWAR(t, db, ps1, 6.5)
+
+	b2 := seedPlayer(t, db, "AB2", "Second", "Batter")
+	ps2 := seedPlayerSeason(t, db, b2, season, &th)
+	seedBatting(t, db, ps2, true, 150, 45, 15, 60)
+	setBattingWAR(t, db, ps2, 4.2)
+
+	b3 := seedPlayer(t, db, "AB3", "Third", "Batter")
+	ps3 := seedPlayerSeason(t, db, b3, season, &th)
+	seedBatting(t, db, ps3, true, 150, 40, 10, 50)
+	setBattingWAR(t, db, ps3, 2.0)
+
+	// 2 pitchers with descending smbWAR — all rookies.
+	p1 := seedPlayer(t, db, "AP1", "Ace", "Pitcher")
+	ps4 := seedPlayerSeason(t, db, p1, season, &th)
+	seedPitching(t, db, ps4, true, 20, 5, 180, 30, 200)
+	setPitchingWAR(t, db, ps4, 7.0)
+
+	p2 := seedPlayer(t, db, "AP2", "Relief", "Pitcher")
+	ps5 := seedPlayerSeason(t, db, p2, season, &th)
+	seedPitching(t, db, ps5, true, 15, 8, 150, 40, 150)
+	setPitchingWAR(t, db, ps5, 3.5)
+
+	candidates, err := s.GetSeasonAwardCandidates(ctx, season)
+	if err != nil {
+		t.Fatalf("GetSeasonAwardCandidates: %v", err)
+	}
+	if !candidates.AutoSuggested {
+		t.Fatal("expected AutoSuggested=true")
+	}
+
+	// MVP chain (merged batters + pitchers, sorted by smbWAR DESC):
+	// p1 (7.0) → MVP, b1 (6.5) → MVP-2, b2 (4.2) → MVP-3,
+	// p2 (3.5) → MVP-4, b3 (2.0) → MVP-5.
+	assertAwardOnPitcher(t, candidates.TopPitchers, ps4, awardIDByName(t, s, ctx, "MVP"), "MVP")
+	assertAwardOnBatter(t, candidates.TopBatters, ps1, awardIDByName(t, s, ctx, "MVP-2"), "MVP-2")
+	assertAwardOnBatter(t, candidates.TopBatters, ps2, awardIDByName(t, s, ctx, "MVP-3"), "MVP-3")
+	assertAwardOnPitcher(t, candidates.TopPitchers, ps5, awardIDByName(t, s, ctx, "MVP-4"), "MVP-4")
+	assertAwardOnBatter(t, candidates.TopBatters, ps3, awardIDByName(t, s, ctx, "MVP-5"), "MVP-5")
+
+	// Cy Young chain: p1 (7.0) → Cy Young, p2 (3.5) → Cy Young-2.
+	assertAwardOnPitcher(t, candidates.TopPitchers, ps4, awardIDByName(t, s, ctx, "Cy Young"), "Cy Young")
+	assertAwardOnPitcher(t, candidates.TopPitchers, ps5, awardIDByName(t, s, ctx, "Cy Young-2"), "Cy Young-2")
+
+	// ROY chain (merged batters + pitchers, sorted by smbWAR DESC):
+	// p1 (7.0) → ROY, b1 (6.5) → ROY-2, b2 (4.2) → ROY-3,
+	// p2 (3.5) → ROY-4, b3 (2.0) → ROY-5.
+	assertAwardOnPitcher(t, candidates.TopRookiePitchers, ps4, awardIDByName(t, s, ctx, "ROY"), "ROY")
+	assertAwardOnBatter(t, candidates.TopRookieBatters, ps1, awardIDByName(t, s, ctx, "ROY-2"), "ROY-2")
+	assertAwardOnBatter(t, candidates.TopRookieBatters, ps2, awardIDByName(t, s, ctx, "ROY-3"), "ROY-3")
+	assertAwardOnPitcher(t, candidates.TopRookiePitchers, ps5, awardIDByName(t, s, ctx, "ROY-4"), "ROY-4")
+	assertAwardOnBatter(t, candidates.TopRookieBatters, ps3, awardIDByName(t, s, ctx, "ROY-5"), "ROY-5")
+}
+
+// ── Auto-suggest: Playoff MVP and Championship MVP ────────────────────────────
+
+func TestAutoSuggest_PlayoffAndChampionshipMVP(t *testing.T) {
+	db := testutil.NewTestDB(t)
+	ctx := context.Background()
+	s := store.NewAwardStore(db)
+
+	season := seedSeason(t, db, 1, 1, 40)
+	champTeam := seedTeam(t, db, "PMV1")
+	champTH := seedTeamHistory(t, db, champTeam, season, "Champions", "", "", 30, 10)
+	runnerTeam := seedTeam(t, db, "PMV2")
+	runnerTH := seedTeamHistory(t, db, runnerTeam, season, "Runners-Up", "", "", 28, 12)
+
+	// Playoff games: champion wins 3-1 in a best-of-5 single-round bracket.
+	seedPlayoffGame(t, db, season, 1, 1, champTH, runnerTH, 5, 2)
+	seedPlayoffGame(t, db, season, 1, 2, runnerTH, champTH, 2, 4)
+	seedPlayoffGame(t, db, season, 1, 3, champTH, runnerTH, 3, 1)
+	seedPlayoffGame(t, db, season, 1, 4, runnerTH, champTH, 3, 2)
+	setPlayoffConfig(t, db, season, 1, 5)
+
+	// Champion team: batter (playoff WAR 2.0) and pitcher (playoff WAR 3.0).
+	champBat := seedPlayer(t, db, "CB1", "Champ", "Bat")
+	champBatPS := seedPlayerSeason(t, db, champBat, season, &champTH)
+	seedBatting(t, db, champBatPS, false, 20, 8, 3, 10)
+	setPlayoffBattingWAR(t, db, champBatPS, 2.0)
+
+	champPit := seedPlayer(t, db, "CP1", "Champ", "Pitch")
+	champPitPS := seedPlayerSeason(t, db, champPit, season, &champTH)
+	seedPitching(t, db, champPitPS, false, 3, 1, 27, 3, 15)
+	setPlayoffPitchingWAR(t, db, champPitPS, 3.0)
+
+	// Runner-up team: batter with highest playoff WAR (4.0) — should get Playoff MVP.
+	runnerBat := seedPlayer(t, db, "RB1", "Runner", "Bat")
+	runnerBatPS := seedPlayerSeason(t, db, runnerBat, season, &runnerTH)
+	seedBatting(t, db, runnerBatPS, false, 20, 10, 5, 12)
+	setPlayoffBattingWAR(t, db, runnerBatPS, 4.0)
+
+	candidates, err := s.GetSeasonAwardCandidates(ctx, season)
+	if err != nil {
+		t.Fatalf("GetSeasonAwardCandidates: %v", err)
+	}
+	if !candidates.AutoSuggested {
+		t.Fatal("expected AutoSuggested=true")
+	}
+
+	// Playoff MVP → runner-up batter (WAR 4.0, highest overall playoff performer).
+	assertAwardOnBatter(t, candidates.PlayoffBatters, runnerBatPS,
+		awardIDByName(t, s, ctx, "Playoff MVP"), "Playoff MVP")
+
+	// Championship MVP → champion pitcher (WAR 3.0, highest on champion team).
+	assertAwardOnPitcher(t, candidates.ChampionPitchers, champPitPS,
+		awardIDByName(t, s, ctx, "Championship MVP"), "Championship MVP")
+
+	// Championship MVP must NOT go to the runner-up batter.
+	assertNoAwardOnBatter(t, candidates.PlayoffBatters, runnerBatPS,
+		awardIDByName(t, s, ctx, "Championship MVP"), "Championship MVP")
+}
+
+// ── Auto-suggest: nil smbWAR ──────────────────────────────────────────────────
+
+func TestAutoSuggest_NilSmbWAR_NoWARAwards(t *testing.T) {
+	db := testutil.NewTestDB(t)
+	ctx := context.Background()
+	s := store.NewAwardStore(db)
+
+	season := seedSeason(t, db, 1, 1, 40)
+	team := seedTeam(t, db, "NIL1")
+	th := seedTeamHistory(t, db, team, season, "Nil WAR Team", "", "", 20, 20)
+
+	bat := seedPlayer(t, db, "NB1", "No", "WarBat")
+	ps1 := seedPlayerSeason(t, db, bat, season, &th)
+	seedBatting(t, db, ps1, true, 150, 50, 20, 80)
+	// smb_war deliberately left NULL
+
+	pit := seedPlayer(t, db, "NP1", "No", "WarPit")
+	ps2 := seedPlayerSeason(t, db, pit, season, &th)
+	seedPitching(t, db, ps2, true, 18, 5, 120, 10, 150)
+	// smb_war deliberately left NULL
+
+	candidates, err := s.GetSeasonAwardCandidates(ctx, season)
+	if err != nil {
+		t.Fatalf("GetSeasonAwardCandidates: %v", err)
+	}
+	if !candidates.AutoSuggested {
+		t.Fatal("expected AutoSuggested=true")
+	}
+
+	// All-Star should still be suggested (top 2 per team — not WAR-dependent).
+	allStarID := awardIDByName(t, s, ctx, "All-Star")
+	if len(candidates.TopBatters) == 0 || !slices.Contains(candidates.TopBatters[0].AwardIDs, allStarID) {
+		t.Errorf("expected All-Star on top batter even when smbWAR is nil, got AwardIDs=%v",
+			candidates.TopBatters[0].AwardIDs)
+	}
+
+	// No WAR-based awards should appear on any candidate.
+	warAwardNames := []string{
+		"MVP", "MVP-2", "MVP-3", "MVP-4", "MVP-5",
+		"Cy Young", "Cy Young-2", "Cy Young-3", "Cy Young-4", "Cy Young-5",
+		"ROY", "ROY-2", "ROY-3", "ROY-4", "ROY-5",
+		"Playoff MVP", "Championship MVP",
+	}
+	warAwardIDs := make(map[int64]string, len(warAwardNames))
+	for _, name := range warAwardNames {
+		warAwardIDs[awardIDByName(t, s, ctx, name)] = name
+	}
+	for _, b := range candidates.TopBatters {
+		for _, id := range b.AwardIDs {
+			if name, ok := warAwardIDs[id]; ok {
+				t.Errorf("batter %d unexpectedly has WAR-based award %q when smbWAR is nil", b.PlayerSeasonID, name)
+			}
+		}
+	}
+	for _, p := range candidates.TopPitchers {
+		for _, id := range p.AwardIDs {
+			if name, ok := warAwardIDs[id]; ok {
+				t.Errorf("pitcher %d unexpectedly has WAR-based award %q when smbWAR is nil", p.PlayerSeasonID, name)
+			}
+		}
+	}
+}
+
+// ── Auto-suggest: SuggestSeasonAwards works after awards are submitted ────────
+
+func TestSuggestSeasonAwards_WorksAfterUserAwardsExist(t *testing.T) {
+	db := testutil.NewTestDB(t)
+	ctx := context.Background()
+	s := store.NewAwardStore(db)
+
+	season := seedSeason(t, db, 1, 1, 40)
+	team := seedTeam(t, db, "SUG1")
+	th := seedTeamHistory(t, db, team, season, "Suggest Team", "", "", 20, 20)
+
+	b1 := seedPlayer(t, db, "SB1", "Suggest", "Batter")
+	ps1 := seedPlayerSeason(t, db, b1, season, &th)
+	seedBatting(t, db, ps1, true, 150, 50, 20, 80)
+	setBattingWAR(t, db, ps1, 5.0)
+
+	p1 := seedPlayer(t, db, "SP1", "Suggest", "Pitcher")
+	ps2 := seedPlayerSeason(t, db, p1, season, &th)
+	seedPitching(t, db, ps2, true, 18, 5, 120, 10, 150)
+	setPitchingWAR(t, db, ps2, 6.0)
+
+	// Submit a user-assignable award so that seasonHasUserAwards returns true.
+	mvpID := awardIDByName(t, s, ctx, "MVP")
+	if err := s.SetPlayerSeasonAwards(ctx, ps1, []int64{mvpID}); err != nil {
+		t.Fatalf("SetPlayerSeasonAwards: %v", err)
+	}
+
+	// GetSeasonAwardCandidates should now load from DB (not auto-suggest).
+	candidates, err := s.GetSeasonAwardCandidates(ctx, season)
+	if err != nil {
+		t.Fatalf("GetSeasonAwardCandidates: %v", err)
+	}
+	if candidates.AutoSuggested {
+		t.Fatal("expected AutoSuggested=false after user awards are submitted")
+	}
+
+	// SuggestSeasonAwards should still return fresh suggestions.
+	entries, err := s.SuggestSeasonAwards(ctx, season)
+	if err != nil {
+		t.Fatalf("SuggestSeasonAwards: %v", err)
+	}
+
+	// The suggestion should include MVP for the pitcher (WAR 6.0 > batter 5.0).
+	royID := awardIDByName(t, s, ctx, "ROY")
+	cyID := awardIDByName(t, s, ctx, "Cy Young")
+	allStarID := awardIDByName(t, s, ctx, "All-Star")
+
+	foundMVPOnPitcher := false
+	foundCyYoungOnPitcher := false
+	foundAllStar := false
+	foundROY := false
+	for _, e := range entries {
+		if e.PlayerSeasonID == ps2 {
+			if slices.Contains(e.AwardIDs, mvpID) {
+				foundMVPOnPitcher = true
+			}
+			if slices.Contains(e.AwardIDs, cyID) {
+				foundCyYoungOnPitcher = true
+			}
+			if slices.Contains(e.AwardIDs, royID) {
+				foundROY = true
+			}
+		}
+		if slices.Contains(e.AwardIDs, allStarID) {
+			foundAllStar = true
+		}
+	}
+	if !foundMVPOnPitcher {
+		t.Error("expected MVP in suggestions for pitcher (higher WAR)")
+	}
+	if !foundCyYoungOnPitcher {
+		t.Error("expected Cy Young in suggestions for pitcher")
+	}
+	if !foundAllStar {
+		t.Error("expected All-Star in suggestions")
+	}
+	if !foundROY {
+		t.Error("expected ROY in suggestions for pitcher (top rookie by WAR)")
+	}
+}
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 func awardsByPS(rows []models.PlayerSeasonAwardRow) map[int64][]string {
@@ -1210,5 +1482,98 @@ func assertNoAward(t *testing.T, byPS map[int64][]string, psID int64, name strin
 	t.Helper()
 	if slices.Contains(byPS[psID], name) {
 		t.Errorf("player-season %d: unexpectedly has award %q", psID, name)
+	}
+}
+
+func awardIDByName(t *testing.T, s *store.AwardStore, ctx context.Context, name string) int64 {
+	t.Helper()
+	all, err := s.ListAllAwards(ctx)
+	if err != nil {
+		t.Fatalf("ListAllAwards: %v", err)
+	}
+	for _, a := range all {
+		if a.Name == name {
+			return a.ID
+		}
+	}
+	t.Fatalf("award %q not found in seed data", name)
+	return 0
+}
+
+func setBattingWAR(t *testing.T, db *sql.DB, playerSeasonID int64, war float64) {
+	t.Helper()
+	_, err := db.ExecContext(context.Background(),
+		`UPDATE player_season_batting_stats SET smb_war = ? WHERE player_season_id = ? AND is_regular_season = 1`,
+		war, playerSeasonID)
+	if err != nil {
+		t.Fatalf("setBattingWAR: %v", err)
+	}
+}
+
+func setPitchingWAR(t *testing.T, db *sql.DB, playerSeasonID int64, war float64) {
+	t.Helper()
+	_, err := db.ExecContext(context.Background(),
+		`UPDATE player_season_pitching_stats SET smb_war = ? WHERE player_season_id = ? AND is_regular_season = 1`,
+		war, playerSeasonID)
+	if err != nil {
+		t.Fatalf("setPitchingWAR: %v", err)
+	}
+}
+
+func setPlayoffBattingWAR(t *testing.T, db *sql.DB, playerSeasonID int64, war float64) {
+	t.Helper()
+	_, err := db.ExecContext(context.Background(),
+		`UPDATE player_season_batting_stats SET smb_war = ? WHERE player_season_id = ? AND is_regular_season = 0`,
+		war, playerSeasonID)
+	if err != nil {
+		t.Fatalf("setPlayoffBattingWAR: %v", err)
+	}
+}
+
+func setPlayoffPitchingWAR(t *testing.T, db *sql.DB, playerSeasonID int64, war float64) {
+	t.Helper()
+	_, err := db.ExecContext(context.Background(),
+		`UPDATE player_season_pitching_stats SET smb_war = ? WHERE player_season_id = ? AND is_regular_season = 0`,
+		war, playerSeasonID)
+	if err != nil {
+		t.Fatalf("setPlayoffPitchingWAR: %v", err)
+	}
+}
+
+func assertAwardOnBatter(t *testing.T, batters []models.BattingCandidate, psID, awardID int64, awardName string) {
+	t.Helper()
+	for _, b := range batters {
+		if b.PlayerSeasonID == psID {
+			if !slices.Contains(b.AwardIDs, awardID) {
+				t.Errorf("batter %d: expected award %q, got AwardIDs=%v", psID, awardName, b.AwardIDs)
+			}
+			return
+		}
+	}
+	t.Errorf("batter %d not found in candidates", psID)
+}
+
+func assertAwardOnPitcher(t *testing.T, pitchers []models.PitchingCandidate, psID, awardID int64, awardName string) {
+	t.Helper()
+	for _, p := range pitchers {
+		if p.PlayerSeasonID == psID {
+			if !slices.Contains(p.AwardIDs, awardID) {
+				t.Errorf("pitcher %d: expected award %q, got AwardIDs=%v", psID, awardName, p.AwardIDs)
+			}
+			return
+		}
+	}
+	t.Errorf("pitcher %d not found in candidates", psID)
+}
+
+func assertNoAwardOnBatter(t *testing.T, batters []models.BattingCandidate, psID, awardID int64, awardName string) {
+	t.Helper()
+	for _, b := range batters {
+		if b.PlayerSeasonID == psID {
+			if slices.Contains(b.AwardIDs, awardID) {
+				t.Errorf("batter %d: unexpectedly has award %q", psID, awardName)
+			}
+			return
+		}
 	}
 }

@@ -366,6 +366,10 @@ export function SubmitSeasonAwards(arg1) {
   return window['go']['main']['App']['SubmitSeasonAwards'](arg1);
 }
 
+export function SuggestSeasonAwards(arg1) {
+  return window['go']['main']['App']['SuggestSeasonAwards'](arg1);
+}
+
 export function SyncSeason() {
   return window['go']['main']['App']['SyncSeason']();
 }

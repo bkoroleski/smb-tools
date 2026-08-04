@@ -1,6 +1,7 @@
 package store
 
 import (
+	"cmp"
 	"context"
 	"database/sql"
 	"fmt"
@@ -14,10 +15,77 @@ import (
 // page: top overall batters/pitchers, rookies, by team, and by position.
 //
 // If no user-assignable awards exist for the season yet, award IDs are pre-populated
-// with auto-suggestions (All-Star for top 2 per team, Silver Slugger for top 1 per
-// position) and AutoSuggested is set to true on the result.
-//nolint:gocognit // sequential orchestrator: 12+ independent query calls each with error handling, plus two data-grouping loops; no shared abstraction reduces the inherent fan-out
+// with auto-suggestions and AutoSuggested is set to true on the result:
+//   - All-Star: top 2 batters and top 2 pitchers per team
+//   - Silver Slugger: top 1 batter per position
+//   - MVP / MVP-2…5: top 5 players (batters + pitchers merged) by smbWAR
+//   - Cy Young / Cy Young-2…5: top 5 pitchers by smbWAR
+//   - ROY / ROY-2…5: top 5 rookies (batters + pitchers merged) by smbWAR
+//   - Playoff MVP: top playoff performer by smbWAR
+//   - Championship MVP: top champion-team playoff performer by smbWAR
+//
+// smbWAR-dependent suggestions are skipped when smbWAR is nil for all candidates
+// in a category (e.g. context stats not yet computed).
 func (s *AwardStore) GetSeasonAwardCandidates(ctx context.Context, seasonID int64) (models.SeasonAwardCandidates, error) {
+	out, err := s.fetchSeasonAwardCandidates(ctx, seasonID)
+	if err != nil {
+		return out, err
+	}
+
+	hasUserAwards, err := s.seasonHasUserAwards(ctx, seasonID)
+	if err != nil {
+		return out, err
+	}
+
+	if hasUserAwards {
+		awardMap, err := s.loadSeasonUserAwardMap(ctx, seasonID)
+		if err != nil {
+			return out, err
+		}
+		populateAllAwardIDs(&out, awardMap)
+	} else {
+		awardMap := map[int64][]int64{}
+		if err := s.applyAutoSuggest(ctx, &out, awardMap); err != nil {
+			return out, err
+		}
+		populateAllAwardIDs(&out, awardMap)
+		out.AutoSuggested = true
+	}
+
+	return out, nil
+}
+
+// SuggestSeasonAwards runs the auto-suggest logic unconditionally (regardless of
+// whether user-assignable awards already exist) and returns the suggested award
+// IDs per player-season. Used by the "Suggest Awards" button in the delegation
+// UI to re-populate the pending state with fresh suggestions.
+func (s *AwardStore) SuggestSeasonAwards(ctx context.Context, seasonID int64) ([]models.PlayerAwardEntry, error) {
+	out, err := s.fetchSeasonAwardCandidates(ctx, seasonID)
+	if err != nil {
+		return nil, err
+	}
+
+	awardMap := map[int64][]int64{}
+	if err := s.applyAutoSuggest(ctx, &out, awardMap); err != nil {
+		return nil, err
+	}
+
+	entries := make([]models.PlayerAwardEntry, 0, len(awardMap))
+	for psID, ids := range awardMap {
+		entries = append(entries, models.PlayerAwardEntry{
+			PlayerSeasonID: psID,
+			AwardIDs:       ids,
+		})
+	}
+	return entries, nil
+}
+
+// fetchSeasonAwardCandidates loads all candidate groups (top batters/pitchers,
+// rookies, by team, by position, playoff) without populating AwardIDs. Shared by
+// GetSeasonAwardCandidates and SuggestSeasonAwards.
+//
+//nolint:gocognit // sequential orchestrator: 12+ independent query calls each with error handling, plus two data-grouping loops; no shared abstraction reduces the inherent fan-out
+func (s *AwardStore) fetchSeasonAwardCandidates(ctx context.Context, seasonID int64) (models.SeasonAwardCandidates, error) {
 	var out models.SeasonAwardCandidates
 	out.SeasonID = seasonID
 
@@ -111,29 +179,6 @@ func (s *AwardStore) GetSeasonAwardCandidates(ctx context.Context, seasonID int6
 	out.ChampionPitchers, err = s.queryPlayoffPitchingCandidates(ctx, seasonID, true)
 	if err != nil {
 		return out, fmt.Errorf("champion pitchers: %w", err)
-	}
-
-	// ── Load existing user-assignable awards ──────────────────────────────────
-	hasUserAwards, err := s.seasonHasUserAwards(ctx, seasonID)
-	if err != nil {
-		return out, err
-	}
-
-	if hasUserAwards {
-		// Load current award assignments from the DB.
-		awardMap, err := s.loadSeasonUserAwardMap(ctx, seasonID)
-		if err != nil {
-			return out, err
-		}
-		populateAllAwardIDs(&out, awardMap)
-	} else {
-		// Auto-suggest: All-Star for top 2 per team, Silver Slugger for top 1 per position.
-		awardMap := map[int64][]int64{}
-		if err := s.applyAutoSuggest(ctx, &out, awardMap); err != nil {
-			return out, err
-		}
-		populateAllAwardIDs(&out, awardMap)
-		out.AutoSuggested = true
 	}
 
 	return out, nil
@@ -458,36 +503,25 @@ WHERE ps.season_id       = ?
 	return m, rows.Err()
 }
 
-// applyAutoSuggest pre-populates awardMap with:
+// applyAutoSuggest pre-populates awardMap with auto-suggestions:
 //   - All-Star for top 2 batters and top 2 pitchers per team
 //   - Silver Slugger for top 1 batter per position
+//   - MVP / MVP-2…5 for top 5 players (batters + pitchers merged) by smbWAR
+//   - Cy Young / Cy Young-2…5 for top 5 pitchers by smbWAR
+//   - ROY / ROY-2…5 for top 5 rookies (batters + pitchers merged) by smbWAR
+//   - Playoff MVP for top 1 playoff performer by smbWAR
+//   - Championship MVP for top 1 champion-team playoff performer by smbWAR
+//
+// smbWAR-dependent suggestions are silently skipped when smbWAR is nil for all
+// candidates in a category.
 func (s *AwardStore) applyAutoSuggest(ctx context.Context, candidates *models.SeasonAwardCandidates, awardMap map[int64][]int64) error {
-	// Fetch award IDs we need.
-	var allStarID, silverSluggerID int64
-	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, name FROM awards WHERE name IN ('All-Star', 'Silver Slugger')`)
+	awardIDs, err := s.lookupAutoSuggestAwardIDs(ctx)
 	if err != nil {
-		return fmt.Errorf("loading auto-suggest award IDs: %w", err)
-	}
-	defer func() { _ = rows.Close() }()
-	for rows.Next() {
-		var id int64
-		var name string
-		if err := rows.Scan(&id, &name); err != nil {
-			return err
-		}
-		switch name {
-		case "All-Star":
-			allStarID = id
-		case "Silver Slugger":
-			silverSluggerID = id
-		}
-	}
-	if err := rows.Err(); err != nil {
 		return err
 	}
 
-	// Top 2 batters and pitchers per team → All-Star.
+	// All-Star: top 2 batters and pitchers per team.
+	allStarID := awardIDs["All-Star"]
 	for _, team := range candidates.ByTeam {
 		for _, b := range team.Batters[:min(2, len(team.Batters))] {
 			addToAwardMap(awardMap, b.PlayerSeasonID, allStarID)
@@ -497,14 +531,144 @@ func (s *AwardStore) applyAutoSuggest(ctx context.Context, candidates *models.Se
 		}
 	}
 
-	// Top 1 batter per position → Silver Slugger.
+	// Silver Slugger: top 1 batter per position.
+	silverSluggerID := awardIDs["Silver Slugger"]
 	for _, pos := range candidates.ByPosition {
 		if len(pos.Batters) > 0 {
 			addToAwardMap(awardMap, pos.Batters[0].PlayerSeasonID, silverSluggerID)
 		}
 	}
 
+	// MVP: top 5 players (batters + pitchers merged) by smbWAR.
+	mvpCandidates := slices.Concat(
+		filterBattersByWAR(candidates.TopBatters),
+		filterPitchersByWAR(candidates.TopPitchers),
+	)
+	sortWARCandidatesDesc(mvpCandidates)
+	assignWARAwardChain(awardMap, mvpCandidates, awardIDs, mvpAwardNames)
+
+	// Cy Young: top 5 pitchers by smbWAR (TopPitchers already sorted by smbWAR DESC).
+	assignWARAwardChain(awardMap, filterPitchersByWAR(candidates.TopPitchers), awardIDs, cyYoungAwardNames)
+
+	// ROY: top 5 rookies (batters + pitchers merged) by smbWAR.
+	royCandidates := slices.Concat(
+		filterBattersByWAR(candidates.TopRookieBatters),
+		filterPitchersByWAR(candidates.TopRookiePitchers),
+	)
+	sortWARCandidatesDesc(royCandidates)
+	assignWARAwardChain(awardMap, royCandidates, awardIDs, royAwardNames)
+
+	// Playoff MVP: top 1 playoff performer by smbWAR.
+	playoffCandidates := slices.Concat(
+		filterBattersByWAR(candidates.PlayoffBatters),
+		filterPitchersByWAR(candidates.PlayoffPitchers),
+	)
+	sortWARCandidatesDesc(playoffCandidates)
+	if len(playoffCandidates) > 0 {
+		addToAwardMap(awardMap, playoffCandidates[0].playerSeasonID, awardIDs["Playoff MVP"])
+	}
+
+	// Championship MVP: top 1 champion-team playoff performer by smbWAR.
+	champCandidates := slices.Concat(
+		filterBattersByWAR(candidates.ChampionBatters),
+		filterPitchersByWAR(candidates.ChampionPitchers),
+	)
+	sortWARCandidatesDesc(champCandidates)
+	if len(champCandidates) > 0 {
+		addToAwardMap(awardMap, champCandidates[0].playerSeasonID, awardIDs["Championship MVP"])
+	}
+
 	return nil
+}
+
+// lookupAutoSuggestAwardIDs fetches the award IDs for every award name used in
+// auto-suggest, returned as a name→ID map. Missing names have a zero value.
+func (s *AwardStore) lookupAutoSuggestAwardIDs(ctx context.Context) (map[string]int64, error) {
+	names := []string{
+		"All-Star", "Silver Slugger", "Playoff MVP", "Championship MVP",
+		"MVP", "MVP-2", "MVP-3", "MVP-4", "MVP-5",
+		"Cy Young", "Cy Young-2", "Cy Young-3", "Cy Young-4", "Cy Young-5",
+		"ROY", "ROY-2", "ROY-3", "ROY-4", "ROY-5",
+	}
+	placeholders := make([]string, len(names))
+	args := make([]any, len(names))
+	for i, n := range names {
+		placeholders[i] = "?"
+		args[i] = n
+	}
+	q := fmt.Sprintf(`SELECT id, name FROM awards WHERE name IN (%s)`, strings.Join(placeholders, ","))
+	rows, err := s.db.QueryContext(ctx, q, args...)
+	if err != nil {
+		return nil, fmt.Errorf("loading auto-suggest award IDs: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+	ids := make(map[string]int64, len(names))
+	for rows.Next() {
+		var id int64
+		var name string
+		if err := rows.Scan(&id, &name); err != nil {
+			return nil, err
+		}
+		ids[name] = id
+	}
+	return ids, rows.Err()
+}
+
+// Award-name chains for runner-up award assignment. Index 0 is the primary
+// award, indices 1–4 are the runner-up slots (rank 1 through 4).
+var (
+	mvpAwardNames     = []string{"MVP", "MVP-2", "MVP-3", "MVP-4", "MVP-5"}
+	cyYoungAwardNames = []string{"Cy Young", "Cy Young-2", "Cy Young-3", "Cy Young-4", "Cy Young-5"}
+	royAwardNames     = []string{"ROY", "ROY-2", "ROY-3", "ROY-4", "ROY-5"}
+)
+
+// warCandidate is a minimal projection of a batting or pitching candidate used
+// for ranking by smbWAR when merging the two types.
+type warCandidate struct {
+	playerSeasonID int64
+	war            float64
+}
+
+// filterBattersByWAR extracts batters with non-nil smbWAR into warCandidates,
+// preserving the existing (smbWAR DESC) order.
+func filterBattersByWAR(batters []models.BattingCandidate) []warCandidate {
+	out := make([]warCandidate, 0, len(batters))
+	for _, b := range batters {
+		if b.SmbWAR != nil {
+			out = append(out, warCandidate{b.PlayerSeasonID, *b.SmbWAR})
+		}
+	}
+	return out
+}
+
+// filterPitchersByWAR extracts pitchers with non-nil smbWAR into warCandidates,
+// preserving the existing (smbWAR DESC) order.
+func filterPitchersByWAR(pitchers []models.PitchingCandidate) []warCandidate {
+	out := make([]warCandidate, 0, len(pitchers))
+	for _, p := range pitchers {
+		if p.SmbWAR != nil {
+			out = append(out, warCandidate{p.PlayerSeasonID, *p.SmbWAR})
+		}
+	}
+	return out
+}
+
+// sortWARCandidatesDesc sorts warCandidates by smbWAR descending in place.
+func sortWARCandidatesDesc(candidates []warCandidate) {
+	slices.SortFunc(candidates, func(a, b warCandidate) int {
+		return cmp.Compare(b.war, a.war)
+	})
+}
+
+// assignWARAwardChain assigns awardNames[0] to candidates[0], awardNames[1] to
+// candidates[1], etc., up to the shorter of the two slices. A zero award ID
+// (name not found in DB) is skipped.
+func assignWARAwardChain(awardMap map[int64][]int64, candidates []warCandidate, awardIDs map[string]int64, awardNames []string) {
+	for i := range min(len(candidates), len(awardNames)) {
+		if id := awardIDs[awardNames[i]]; id != 0 {
+			addToAwardMap(awardMap, candidates[i].playerSeasonID, id)
+		}
+	}
 }
 
 func addToAwardMap(m map[int64][]int64, psID, awardID int64) {
@@ -585,6 +749,7 @@ SELECT
     COALESCE(b.obp, 0.0),
     COALESCE(b.slg, 0.0),
     COALESCE(b.ops, 0.0),
+    b.smb_war,
     CASE WHEN tsh.id IN (SELECT winner_history_id FROM season_champions WHERE season_id = ?) THEN 1 ELSE 0 END AS is_champion_team
 FROM player_seasons ps
 JOIN players p ON p.id = ps.player_id
@@ -617,6 +782,7 @@ LIMIT 10
 			&c.AtBats, &c.Hits, &c.HomeRuns, &c.RBI, &c.Walks, &c.Runs,
 			&c.StolenBases, &c.Strikeouts, &c.Doubles, &c.Triples,
 			&c.BA, &c.OBP, &c.SLG, &c.OPS,
+			&c.SmbWAR,
 			&isChamp,
 		); err != nil {
 			return nil, fmt.Errorf("scanning playoff batting candidate: %w", err)
@@ -662,6 +828,7 @@ SELECT
     COALESCE(pit.h_per_9,  0.0),
     COALESCE(pit.hr_per_9, 0.0),
     COALESCE(pit.k_per_bb, 0.0),
+    pit.smb_war,
     CASE WHEN tsh.id IN (SELECT winner_history_id FROM season_champions WHERE season_id = ?) THEN 1 ELSE 0 END AS is_champion_team
 FROM player_seasons ps
 JOIN players p ON p.id = ps.player_id
@@ -697,6 +864,7 @@ LIMIT 10
 			&c.HitsAllowed, &c.EarnedRuns, &c.Walks, &c.Strikeouts,
 			&c.HomeRunsAllowed, &c.CompleteGames, &c.Shutouts,
 			&c.ERA, &c.WHIP, &c.K9, &c.BB9, &c.H9, &c.HR9, &c.KPerBB,
+			&c.SmbWAR,
 			&isChamp,
 		); err != nil {
 			return nil, fmt.Errorf("scanning playoff pitching candidate: %w", err)
